@@ -289,6 +289,7 @@ int pmlWrite(const void *data, int len) {
     if (g_mode == PML_MODE_HOSTFS) {
         r = usbAsyncWrite(ASYNC_USER, data, len);
         if (r > 0) g_tx_bytes += r;
+        if (r < 0) r = -2; /* usbhostfs returns -1 until usbhostfs_pc has said HELLO: "not connected" */
     } else if (g_mode == PML_MODE_MACLINK && g_state == 2) {
         sceKernelWaitSema(g_txsema, 1, NULL);
         r = maclink_write((const unsigned char *)data, len);
