@@ -25,12 +25,10 @@
 
 #include "../../common/psp/link.h"
 #include "../codec/scr_codec.h"
-#ifdef SCR_HAVE_USB
+#ifdef WITH_USB
 #include "../../common/psp/usb/psp_usb_io.h"
 #endif
-#ifdef SCR_HAVE_MAILBOX
 #include "../../common/psp/io_mailbox.h"
-#endif
 
 PSP_MODULE_INFO("PSPE1000_SCREEN", PSP_MODULE_USER, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
@@ -88,7 +86,7 @@ static int open_io(int mode, psp_link_io_t *io, char *err, int errlen) {
         io->write = replay_write; io->read = replay_read; io->ctx = NULL;
         return 0;
     }
-#ifdef SCR_HAVE_USB
+#ifdef WITH_USB
     case MODE_USB:
     case MODE_HOSTFS: {
         int r = psp_usb_start(mode == MODE_USB ? PSP_USB_MODE_MACLINK : PSP_USB_MODE_HOSTFS);
@@ -97,7 +95,6 @@ static int open_io(int mode, psp_link_io_t *io, char *err, int errlen) {
         return 0;
     }
 #endif
-#ifdef SCR_HAVE_MAILBOX
     case MODE_MAILBOX: {
         static uint8_t mbox_mem[64 + 2 * 65536] __attribute__((aligned(64)));
         static psp_mbox_t mb;
@@ -108,7 +105,6 @@ static int open_io(int mode, psp_link_io_t *io, char *err, int errlen) {
         *io = psp_mbox_io(&mb);
         return 0;
     }
-#endif
     default:
         snprintf(err, errlen, "io '%s' not compiled into this build", mode_name[mode]);
         return -1;
@@ -135,18 +131,18 @@ static int menu(void) {
         pspDebugScreenSetXY(0, 0);
         pspDebugScreenPrintf("PSP E1000 second screen\n\nChoose the link to the Mac:\n\n");
         pspDebugScreenPrintf("  CROSS     USB maclink (fast; psp_screen.py --transport usb)%s\n",
-#ifdef SCR_HAVE_USB
+#ifdef WITH_USB
                              "");
 #else
                              "  [not in build]");
 #endif
-        pspDebugScreenPrintf("  CIRCLE    USB hostfs  (fallback; usbhostfs_pc + --transport hostfs)\n");
-        pspDebugScreenPrintf("  TRIANGLE  emulator mailbox (PPSSPP + tools/ppsspp_bridge.py)%s\n",
-#ifdef SCR_HAVE_MAILBOX
+        pspDebugScreenPrintf("  CIRCLE    USB hostfs  (fallback; usbhostfs_pc + --transport hostfs)%s\n",
+#ifdef WITH_USB
                              "");
 #else
                              "  [not in build]");
 #endif
+        pspDebugScreenPrintf("  TRIANGLE  emulator mailbox (PPSSPP + tools/ppsspp_bridge.py)\n");
         pspDebugScreenPrintf("  SQUARE    replay stream.bin from the EBOOT folder\n\n");
         pspDebugScreenPrintf("dir: %s\nHOME exits. SELECT toggles stats while streaming.\n", base_dir);
         sceCtrlPeekBufferPositive(&pad, 1);
@@ -212,9 +208,7 @@ int main(int argc, char *argv[]) {
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_DIGITAL);
 
     int mode = read_cfg();
-#ifdef SCR_HAVE_MAILBOX
     if (mode == MODE_NONE && psp_is_emulator()) mode = MODE_MAILBOX; /* PPSSPP: no USB, use the bridge */
-#endif
     if (mode == MODE_NONE) mode = menu();
     if (!running) { sceKernelExitGame(); return 0; }
 
@@ -335,6 +329,20 @@ int main(int argc, char *argv[]) {
             scr_present(&dec, VRAM_UNCACHED, FB_STRIDE, 0);
         }
         prev_buttons = buttons;
+#ifdef WITH_USB
+        if (first && (mode == MODE_USB || mode == MODE_HOSTFS) && now - last_overlay > 500000) {
+            int info[4] = {0, 0, 0, 0};
+            static const char *stn[] = {"off", "waiting for host", "connected"};
+            int ust = psp_usb_state();
+            psp_usb_info(info);
+            pspDebugScreenSetXY(0, 8);
+            pspDebugScreenPrintf("USB: %s, speed %s, rx %d B, tx %d B, last err %08X   \n",
+                                 stn[ust >= 0 && ust <= 2 ? ust : 0],
+                                 info[0] == 2 ? "HIGH (480M)" : info[0] == 1 ? "FULL (12M!)" : "?", info[1], info[2],
+                                 info[3]);
+            last_overlay = now;
+        }
+#endif
         if (overlay && !first && now - last_overlay > 500000) { /* refresh stats when idle */
             scr_mark_rows_dirty(&dec, OVERLAY_Y, SCR_H);
             scr_present(&dec, VRAM_UNCACHED, FB_STRIDE, 0);
@@ -342,7 +350,7 @@ int main(int argc, char *argv[]) {
             last_overlay = now;
         }
     }
-#ifdef SCR_HAVE_USB
+#ifdef WITH_USB
     if (mode == MODE_USB || mode == MODE_HOSTFS) psp_usb_stop();
 #endif
     sceKernelExitGame();

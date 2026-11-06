@@ -5,3 +5,9 @@ lz4==4.4.5
 cmake==4.4.4
 websocket-client==1.9.2
 pillow==13.0.0
+
+# feat/second-screen
+numpy==2.5.4
+mss==10.2.0
+pyobjc-framework-ScreenCaptureKit==13.0
+pyobjc-framework-Quartz==13.0

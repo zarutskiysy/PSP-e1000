@@ -243,34 +243,38 @@ def cmd_probe(a) -> int:
 
 # -------------------------------------------------------------------------------------------- bench
 def cmd_bench(a) -> int:
-    from screencodec import PyDecoder
+    sys.path.insert(0, str(ROOT / "tools"))
+    from fake_psp_screen import CScreen  # the PSP decoder (scr_codec.c) via ctypes
     specs = a.sources.split(",")
     print("| source | lz4 | frames | avg KiB/frame | max KiB/frame | key KiB | avg dirty tiles | avg encode ms | "
-          "fps @8 MB/s | fps @16 MB/s |\n|---|---|---|---|---|---|---|---|---|---|")
+          "C decode ms (Mac M-series) | link-only fps @8 MB/s | @16 MB/s |\n|---|---|---|---|---|---|---|---|---|---|---|")
     for spec in specs:
         src = make_source(spec)
         for mode in ("off", "auto"):
             enc = Encoder(lz4=mode)
-            dec = PyDecoder() if a.verify else None
-            sizes, dirty, ems, key_kb = [], [], [], 0.0
+            dec = CScreen()
+            sizes, dirty, ems, dms, key_kb = [], [], [], [], 0.0
             for n in range(a.frames):
                 fr = src.frame(n)
                 chunks = enc.encode(fr, key=(n == 0))
+                t0 = time.perf_counter()
+                for c in chunks:
+                    dec.chunk(c)
+                dec.present()
+                dms.append((time.perf_counter() - t0) * 1e3)
+                if a.verify:
+                    assert np.array_equal(dec.visible, fr), spec
                 if n == 0:
-                    key_kb = enc.last.wire_bytes / 1024
+                    key_kb = (enc.last.wire_bytes + 12 * enc.last.chunks) / 1024
                     continue
-                sizes.append(enc.last.wire_bytes + 12 * enc.last.chunks)
+                sizes.append(enc.last.wire_bytes + 12 * enc.last.chunks)  # + link framing
                 dirty.append(enc.last.dirty)
                 ems.append(enc.last.encode_ms)
-                if dec:
-                    for c in chunks:
-                        dec.chunk(c)
-                    assert np.array_equal(dec.canvas, fr), spec
             avg = float(np.mean(sizes))
             fps8 = min(60.0, 8e6 / avg) if avg else 60.0
             fps16 = min(60.0, 16e6 / avg) if avg else 60.0
             print(f"| {spec} | {mode} | {a.frames - 1} | {avg / 1024:.1f} | {max(sizes) / 1024:.1f} | {key_kb:.1f} | "
-                  f"{np.mean(dirty):.0f} | {np.mean(ems):.2f} | {fps8:.0f} | {fps16:.0f} |", flush=True)
+                  f"{np.mean(dirty):.0f} | {np.mean(ems):.2f} | {np.mean(dms[1:]):.3f} | {fps8:.0f} | {fps16:.0f} |", flush=True)
     return 0
 
 
