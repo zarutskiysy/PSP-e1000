@@ -18,6 +18,8 @@ Debugger API (PPSSPP v1.20.4 source, Core/Debugger/WebSocket/*.cpp): endpoint ws
 subprotocol "debugger.ppsspp.org"; gpu.buffer.screenshot only works while the CPU is stepping, so
 shot = cpu.stepping -> gpu.buffer.screenshot(type=uri) -> cpu.resume.
 If several worktrees run PPSSPP at once, give each its own --port.
+Known issue: taking a shot while tools/ppsspp_bridge.py is streaming can leave the emulated CPU
+paused (m2p ring stops draining); take screenshots when the link is idle.
 """
 from __future__ import annotations
 
@@ -77,7 +79,7 @@ class Ppsspp:
 
     # -- process management -------------------------------------------------
     @classmethod
-    def launch(cls, eboot: str | os.PathLike, port: int = DEFAULT_PORT, wait: float = 20.0,
+    def launch(cls, eboot: str | os.PathLike, port: int = DEFAULT_PORT, wait: float = 30.0,
                log: str | os.PathLike | None = None) -> "Ppsspp":
         home = sandbox(port)
         sysdir = home / ".config/ppsspp/PSP/SYSTEM"
