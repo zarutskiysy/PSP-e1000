@@ -45,6 +45,9 @@ void psp_usb_stop(void);
 int psp_usb_state(void);
 /* io for link.h; valid after psp_usb_start() succeeded. */
 psp_link_io_t psp_usb_io(void);
+/* Debug counters: out[0] attach speed (1 full, 2 high; MACLINK only), out[1] rx bytes, out[2] tx bytes,
+ * out[3] last sce error. Returns 0, or <0 if not started. */
+int psp_usb_info(int out[4]);
 /* Human-readable last error (static string). */
 const char *psp_usb_last_error(void);
 

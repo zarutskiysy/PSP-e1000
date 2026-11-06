@@ -47,9 +47,20 @@ int main(void) {
         mode = "emulator mailbox (run tools/ppsspp_bridge.py)";
     } else {
 #ifdef WITH_USB
-        err = psp_usb_start(PSP_USB_MODE_HOSTFS);
+        SceCtrlData pad;
+        int usb_mode = 0;
+        pspDebugScreenPrintf("PSP E1000 x Mac -- link echo\n\n");
+        pspDebugScreenPrintf("Choose the USB mode:\n  X  = HOSTFS  (Mac: usbhostfs_pc, then --spec hostfs)\n");
+        pspDebugScreenPrintf("  O  = MACLINK (Mac: --spec usb)\n");
+        while (running && !usb_mode) {
+            sceCtrlReadBufferPositive(&pad, 1);
+            if (pad.Buttons & PSP_CTRL_CROSS) usb_mode = PSP_USB_MODE_HOSTFS;
+            if (pad.Buttons & PSP_CTRL_CIRCLE) usb_mode = PSP_USB_MODE_MACLINK;
+        }
+        pspDebugScreenClear();
+        err = psp_usb_start(usb_mode);
         io = psp_usb_io();
-        mode = "USB hostfs (run usbhostfs_pc on the Mac)";
+        mode = usb_mode == PSP_USB_MODE_HOSTFS ? "USB HOSTFS (usbhostfs.prx, async ch 4)" : "USB MACLINK (pspmaclink.prx)";
 #else
         mode = "no transport (built without WITH_USB)";
         err = -1;
@@ -74,6 +85,15 @@ int main(void) {
             pspDebugScreenPrintf("echoed: %u frames, %u bytes\ncrc errors: %u\n", (unsigned)echoed, (unsigned)bytes,
                                  (unsigned)l.parser.crc_errors);
         }
+#ifdef WITH_USB
+        if (!psp_is_emulator()) {
+            int info[4] = {0, 0, 0, 0};
+            psp_usb_info(info);
+            pspDebugScreenPrintf("usb: %s\nusb state: %d (0 off, 1 waiting, 2 connected) speed: %d (2 = high)\n",
+                                 psp_usb_last_error(), psp_usb_state(), info[0]);
+            pspDebugScreenPrintf("usb rx %d B, tx %d B, last err %08X\n", info[1], info[2], (unsigned)info[3]);
+        }
+#endif
         if (r < 0) err = r;
     }
 #ifdef WITH_USB
