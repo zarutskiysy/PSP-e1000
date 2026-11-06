@@ -79,7 +79,7 @@ class Ppsspp:
 
     # -- process management -------------------------------------------------
     @classmethod
-    def launch(cls, eboot: str | os.PathLike, port: int = DEFAULT_PORT, wait: float = 20.0,
+    def launch(cls, eboot: str | os.PathLike, port: int = DEFAULT_PORT, wait: float = 30.0,
                log: str | os.PathLike | None = None) -> "Ppsspp":
         home = sandbox(port)
         sysdir = home / ".config/ppsspp/PSP/SYSTEM"
