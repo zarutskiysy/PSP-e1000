@@ -40,3 +40,6 @@ ppsspp_state/
 *.mp4
 *.mov
 *.zip
+
+# PPSSPP sandbox HOME (tools/ppsspp.py)
+.ppsspp_home/
