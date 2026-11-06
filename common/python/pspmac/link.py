@@ -79,12 +79,16 @@ class Link:
         return None
 
     # -- helpers -------------------------------------------------------------
-    def handshake(self, timeout: float = 3.0) -> P.Hello:
-        self.send(P.T_HELLO, self.hello_payload())
-        f = self.wait_for(P.T_HELLO_ACK, timeout)
-        if f is None:
-            raise TimeoutError("no HELLO_ACK from peer")
-        return self.peer  # type: ignore[return-value]
+    def handshake(self, timeout: float = 3.0, attempts: int = 1) -> P.Hello:
+        """Send HELLO and wait for HELLO_ACK; resend up to `attempts` times. Use attempts > 1 with the
+        "hostfs" transport: usbhostfs_pc accepts the TCP connection before the PSP is connected and
+        bytes sent meanwhile may be lost (the PSP side also drops writes while disconnected)."""
+        for _ in range(max(1, attempts)):
+            self.send(P.T_HELLO, self.hello_payload())
+            f = self.wait_for(P.T_HELLO_ACK, timeout)
+            if f is not None:
+                return self.peer  # type: ignore[return-value]
+        raise TimeoutError("no HELLO_ACK from peer")
 
     def ping(self, timeout: float = 1.0) -> float:
         """Round-trip time in seconds."""
