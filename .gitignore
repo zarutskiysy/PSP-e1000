@@ -22,7 +22,7 @@ out/
 
 # Host test builds
 *.dSYM/
-common/psp/test/test_*.bin
+common/psp/test/*.bin
 
 # Toolchain / downloads / emulator state
 pspdev/
