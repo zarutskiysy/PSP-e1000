@@ -1,0 +1,42 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Worktrees for builders
+.worktrees/
+
+# PSP build outputs
+*.o
+*.a
+*.elf
+*.prx
+*.SFO
+*.sfo
+*.PBP
+!docs/**/*.PBP
+build/
+build-*/
+out/
+
+# Host test builds
+*.dSYM/
+common/psp/test/test_*.bin
+
+# Toolchain / downloads / emulator state
+pspdev/
+pspdev_dl/
+*.tar.gz
+*.iso
+*.cso
+memstick/
+ppsspp_state/
+
+# macOS
+.DS_Store
+
+# Big binaries
+*.mp4
+*.mov
+*.zip
