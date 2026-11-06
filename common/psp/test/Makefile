@@ -1,11 +1,11 @@
 # Host (macOS) unit tests for the PSP-side C code.  Usage: make -C common/psp/test
 CC ?= cc
 CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined
-SRC = ../link.c ../io_pipe.c
+SRC = ../link.c ../io_pipe.c ../io_mailbox.c
 
 all: run
 
-test_link.bin: test_link.c $(SRC) ../link.h ../io_pipe.h ../../protocol/psp_link.h
+test_link.bin: test_link.c $(SRC) ../link.h ../io_pipe.h ../io_mailbox.h ../../protocol/psp_link.h
 	$(CC) $(CFLAGS) -o $@ test_link.c $(SRC)
 
 run: test_link.bin
