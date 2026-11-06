@@ -30,6 +30,8 @@ void deck_io_open(deck_io_t *d, int force_demo);
 int deck_io_service(deck_io_t *d);
 /* 1 when bytes can flow (USB host connected / always for demo and mailbox). */
 int deck_io_ready(const deck_io_t *d);
+/* USB debug line ("usb rx/tx bytes, last err"); empty string when not in USB mode. */
+void deck_io_debug_line(const deck_io_t *d, char *out, int n);
 /* Short status text for the UI. */
 const char *deck_io_state_text(const deck_io_t *d);
 

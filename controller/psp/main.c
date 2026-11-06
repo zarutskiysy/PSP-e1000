@@ -343,6 +343,8 @@ int main(void) {
         fps_frames++;
         snprintf(line, sizeof line, "tx %u rx %u err %d %ufps", tx_inputs, (unsigned)link.rx_frames, link_errors, fps);
         text(0, 8, C_DIM, line);
+        deck_io_debug_line(&dio, line, 30);
+        if (line[0]) text(0, 9, C_DIM, line);
 
         /* nub box */
         fill(8, 84, 68, 68, C_PANEL);

@@ -84,3 +84,10 @@ const char *deck_io_state_text(const deck_io_t *d) {
     if (d->kind == DECK_IO_MAILBOX) return psp_mbox_bridge_seen(&mbox) ? "bridge up" : "wait bridge";
     return "demo, no Mac";
 }
+
+void deck_io_debug_line(const deck_io_t *d, char *out, int n) {
+    int info[4] = {0, 0, 0, 0};
+    out[0] = 0;
+    if (d->kind != DECK_IO_USB || psp_usb_info(info) < 0) return;
+    snprintf(out, n, "usb rx %d tx %d err %08X", info[1], info[2], (unsigned)info[3]);
+}

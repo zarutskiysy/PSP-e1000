@@ -14,4 +14,5 @@ psp_link_io_t psp_usb_io(void) {
     psp_link_io_t io = {nowrite, noread, 0};
     return io;
 }
+int psp_usb_info(int out[4]) { (void)out; return -1; }
 const char *psp_usb_last_error(void) { return "USB io not built in (usb_stub.c)"; }
