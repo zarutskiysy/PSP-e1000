@@ -6,7 +6,8 @@ The Mac app connects to it exactly like it would open the USB device:
     python tools/fake_psp.py --plugin tools/fake_psp_controller.py   # track-specific behaviour
     python tools/fake_psp.py --port 0 --print-port                    # random port (tests)
 
-Generic behaviour: answers HELLO with HELLO_ACK, PING with PONG, prints every frame.
+Generic behaviour: answers HELLO with HELLO_ACK, PING with PONG, echoes frames of type >= 0xF1
+(like examples/echo on the PSP), prints every frame.
 A plugin is a Python file defining `class Plugin` with any of:
     __init__(self, args)                 # args = list of extra CLI args after `--`
     on_connect(self, link)               # after accept
@@ -69,10 +70,12 @@ def main(argv=None) -> int:
             while True:
                 f = link.recv(a.tick)
                 if f is not None:
-                    if f.type != P.T_TEST:
+                    if f.type < P.T_TEST:
                         log(f"rx {f.name} seq={f.seq} len={len(f.payload)}")
                     if f.type == P.T_BYE:
                         break
+                    if f.type >= 0xF1:
+                        link.send(f.type, f.payload, f.flags)
                     if plugin and hasattr(plugin, "on_frame"):
                         plugin.on_frame(link, f)
                 now = time.monotonic()
