@@ -43,7 +43,7 @@ def cmd_list() -> int:
 def cmd_echo(spec: str, sizes: list[int], seconds: float) -> int:
     t = open_transport(spec, **({"wait": 10.0} if spec.startswith("usb") else {}))
     link = Link(t, name="usb_probe")
-    peer = link.handshake(timeout=5)
+    peer = link.handshake(timeout=2, attempts=15)
     print(f"peer: {peer.name!r} role={peer.role} app={peer.app} max_payload={peer.max_payload}")
     rtts = [link.ping(timeout=2) * 1e3 for _ in range(50)]
     print(f"RESULT {spec} ping rtt ms: min {min(rtts):.2f} median {statistics.median(rtts):.2f} max {max(rtts):.2f}")
