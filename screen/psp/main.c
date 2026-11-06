@@ -7,6 +7,7 @@
  *   USB maclink  common/psp/usb (pspmaclink.prx, vendor bulk)      -- real hardware, fast path
  *   USB hostfs   common/psp/usb (usbhostfs.prx + usbhostfs_pc)      -- real hardware, fallback
  *   mailbox      common/psp/io_mailbox (PPSSPP + tools/ppsspp_bridge.py) -- emulator end-to-end
+ *                (picked automatically when psp_is_emulator() and there is no screen.cfg)
  *   replay       stream.bin next to the EBOOT (recorded by `psp_screen.py --transport record:...`)
  * Optional screen.cfg next to the EBOOT with one word (usb|hostfs|mailbox|replay) skips the menu.
  *
@@ -97,9 +98,16 @@ static int open_io(int mode, psp_link_io_t *io, char *err, int errlen) {
     }
 #endif
 #ifdef SCR_HAVE_MAILBOX
-    case MODE_MAILBOX:
-        *io = psp_mailbox_io();
+    case MODE_MAILBOX: {
+        static uint8_t mbox_mem[64 + 2 * 65536] __attribute__((aligned(64)));
+        static psp_mbox_t mb;
+        if (psp_mbox_init(&mb, mbox_mem, sizeof mbox_mem, 65536, 65536) < 0) {
+            snprintf(err, errlen, "psp_mbox_init failed");
+            return -1;
+        }
+        *io = psp_mbox_io(&mb);
         return 0;
+    }
 #endif
     default:
         snprintf(err, errlen, "io '%s' not compiled into this build", mode_name[mode]);
@@ -162,15 +170,19 @@ typedef struct {
     int probe_active;
 } stats_t;
 
+static psp_link_t *g_link;
+
 static void draw_overlay(const stats_t *s, const scr_decoder_t *d, int mode, int status) {
     pspDebugScreenSetXY(0, OVERLAY_Y / 8);
     pspDebugScreenSetBackColor(0xFF000000);
     pspDebugScreenSetTextColor(status ? 0xFF4040FF : 0xFF40FF40);
-    pspDebugScreenPrintf("%2lu.%lufps %2lu.%02luMB/s dec%2lu.%lums %s #%lu e%lu%s          ",
+    pspDebugScreenPrintf("%2lu.%lufps %2lu.%02luMB/s dec%2lu.%lums %s #%lu e%lu c%lu%s          ",
                          (unsigned long)(s->fps_x10 / 10), (unsigned long)(s->fps_x10 % 10),
                          (unsigned long)(s->kbps / 1000), (unsigned long)(s->kbps % 1000 / 10),
                          (unsigned long)(s->dec_us / 1000), (unsigned long)(s->dec_us % 1000 / 100), mode_name[mode],
-                         (unsigned long)s->frames_shown, (unsigned long)d->errors, d->need_key ? " KEY?" : "");
+                         (unsigned long)s->frames_shown, (unsigned long)d->errors,
+                         (unsigned long)(g_link->parser.crc_errors + g_link->parser.oversize_frames),
+                         d->need_key ? " KEY?" : "");
 }
 
 static void send_ack(psp_link_t *l, const scr_decoder_t *d, const stats_t *s, unsigned buttons) {
@@ -200,6 +212,9 @@ int main(int argc, char *argv[]) {
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_DIGITAL);
 
     int mode = read_cfg();
+#ifdef SCR_HAVE_MAILBOX
+    if (mode == MODE_NONE && psp_is_emulator()) mode = MODE_MAILBOX; /* PPSSPP: no USB, use the bridge */
+#endif
     if (mode == MODE_NONE) mode = menu();
     if (!running) { sceKernelExitGame(); return 0; }
 
@@ -221,6 +236,7 @@ int main(int argc, char *argv[]) {
     stats_t st;
     memset(&st, 0, sizeof st);
     psp_link_init(&link, io, rx_payload, sizeof rx_payload, tx_buf, sizeof tx_buf, rx_chunk, sizeof rx_chunk);
+    g_link = &link;
     link.app = 2; /* screen */
     link.name = "psp-screen";
     scr_dec_init(&dec, canvas, SCR_W);

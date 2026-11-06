@@ -47,6 +47,8 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=45672)
     ap.add_argument("--shot", help="also save a PPSSPP screenshot PNG here")
     ap.add_argument("--wait", type=float, default=6.0)
+    ap.add_argument("--fps", type=float, default=30.0, help="mailbox: sender target fps")
+    ap.add_argument("--lz4", default="auto")
     ap.add_argument("--keep", action="store_true", help="leave PPSSPP running")
     a = ap.parse_args()
 
@@ -66,10 +68,11 @@ def main() -> int:
     emu = Ppsspp.launch(run / "EBOOT.PBP", a.port)
     try:
         if a.mode == "mailbox":
-            bridge = subprocess.Popen([PY, str(ROOT / "tools/ppsspp_bridge.py"), "--port", str(a.port)], cwd=ROOT)
+            bridge = subprocess.Popen([PY, str(ROOT / "tools/ppsspp_bridge.py"), "--port", str(a.port),
+                                       "--listen", "47102"], cwd=ROOT)
             time.sleep(2)
-            sender = subprocess.Popen([PY, str(ROOT / "screen/mac/psp_screen.py"), "--transport", "mock",
-                                       "--source", a.source, "--fps", "30", "--frames", str(a.frames),
+            sender = subprocess.Popen([PY, str(ROOT / "screen/mac/psp_screen.py"), "--transport", "tcp:127.0.0.1:47102",
+                                       "--source", a.source, "--fps", str(a.fps), "--frames", str(a.frames), "--lz4", a.lz4,
                                        "--ack-timeout", "20", "--handshake-timeout", "30"], cwd=ROOT)
             sender.wait(timeout=600)
             bridge.terminate()
