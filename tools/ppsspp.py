@@ -140,6 +140,28 @@ class Ppsspp:
                 return msg
         raise TimeoutError(event)
 
+    def batch(self, reqs: list[tuple[str, dict]], timeout: float = 10.0) -> list[dict]:
+        """Pipeline several requests in one go (PPSSPP handles all queued requests in one Process()
+        tick, ~16 ms), then collect the replies in order. Much faster than one request() each."""
+        tickets = []
+        for event, params in reqs:
+            t = str(next(self._tickets))
+            tickets.append(t)
+            self.ws.send(json.dumps({"event": event, "ticket": t, **params}))
+        replies: dict[str, dict] = {}
+        deadline = time.monotonic() + timeout
+        while len(replies) < len(tickets):
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"batch: {len(replies)}/{len(tickets)} replies")
+            self.ws.settimeout(max(0.05, deadline - time.monotonic()))
+            msg = json.loads(self.ws.recv())
+            t = msg.get("ticket")
+            if t in tickets:
+                if msg.get("event") == "error":
+                    raise RuntimeError(f"batch: {msg.get('message')}")
+                replies[t] = msg
+        return [replies[t] for t in tickets]
+
     def status(self) -> dict:
         return self.request("game.status")
 
