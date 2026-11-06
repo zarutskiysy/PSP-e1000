@@ -79,9 +79,9 @@ static void textf_px(int x, int y, u32 color, const char *s) { /* pixel-position
 
 /* ---- action wheel ------------------------------------------------------ */
 #define WCX 352
-#define WCY 140
-#define WR 112
-#define WRIN 30
+#define WCY 136
+#define WR 104
+#define WRIN 28
 #define WMAP (2 * WR + 1)
 static uint8_t wheel_map[WMAP * WMAP]; /* slice index, 0xFE border, 0xFF outside */
 static int wheel_n = 0;
@@ -159,7 +159,7 @@ static int have_config;
 static char last_msg[CTRL_RESULT_TEXT_LEN + 16] = "";
 static u32 last_msg_color = C_DIM;
 static unsigned psp_rtt_us, mac_rtt_us, mac_events, mac_input_hz;
-static int mac_dry, mac_ax, link_errors, peer_seen;
+static int mac_dry, mac_ax, link_errors, peer_seen, have_status;
 static unsigned tx_inputs;
 
 #define PING_MAGIC 0x474B5044u /* "DPKG" */
@@ -200,6 +200,7 @@ static void handle_frame(const psp_link_frame_t *f) {
             mac_input_hz = psp_link_get_u16(f->payload + 8);
             mac_dry = f->payload[10];
             mac_ax = f->payload[11];
+            have_status = 1;
         }
         break;
     case PSP_LINK_T_PONG:
@@ -227,7 +228,7 @@ static void draw_button(int col, int row, const char *name, int on) {
 int main(void) {
     SceUID th = sceKernelCreateThread("cb", cb_thread, 0x11, 0xFA0, 0, 0);
     SceCtrlData pad;
-    unsigned frame = 0, last_hello = 0, last_ping = 0;
+    unsigned frame = 0, last_hello = 0, last_ping = 0, fps_t0 = 0, fps_frames = 0, fps = 0;
     int wheel_open = 0, hover = CTRL_NO_SLICE;
     char line[96];
 
@@ -252,7 +253,14 @@ int main(void) {
         int r, ready;
         sceCtrlPeekBufferPositive(&pad, 1);
         now = sceKernelGetSystemTimeLow();
-        deck_io_service(&dio);
+        if (deck_io_service(&dio)) { /* io replaced: fresh link, fresh session */
+            psp_link_init(&link, dio.io, rx_payload, sizeof rx_payload, tx_buf, sizeof tx_buf, rx_chunk,
+                          sizeof rx_chunk);
+            link.app = CTRL_APP_ID;
+            link.name = "psp_deck";
+            have_config = 0;
+            last_hello = 0;
+        }
         ready = deck_io_ready(&dio);
 
         /* incoming */
@@ -321,10 +329,19 @@ int main(void) {
         snprintf(line, sizeof line, "mac rtt %u.%u ms  in %u Hz", mac_rtt_us / 1000, (mac_rtt_us / 100) % 10,
                  mac_input_hz);
         text(0, 6, C_TEXT, line);
-        snprintf(line, sizeof line, "events %u %s%s", mac_events, mac_dry ? "DRY-RUN" : "LIVE",
-                 (!mac_dry && !mac_ax) ? " no-AX!" : "");
+        if (have_status)
+            snprintf(line, sizeof line, "mac events %u %s%s", mac_events, mac_dry ? "DRY-RUN" : "LIVE",
+                     (!mac_dry && !mac_ax) ? " no-AX!" : "");
+        else
+            snprintf(line, sizeof line, "mac status: --");
         text(0, 7, mac_dry ? C_DIM : C_OK, line);
-        snprintf(line, sizeof line, "tx %u  rx %u  err %d", tx_inputs, (unsigned)link.rx_frames, link_errors);
+        if (now - fps_t0 >= 1000000u) {
+            fps = fps_frames * 1000000u / (now - fps_t0);
+            fps_frames = 0;
+            fps_t0 = now;
+        }
+        fps_frames++;
+        snprintf(line, sizeof line, "tx %u rx %u err %d %ufps", tx_inputs, (unsigned)link.rx_frames, link_errors, fps);
         text(0, 8, C_DIM, line);
 
         /* nub box */

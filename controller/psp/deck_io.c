@@ -1,20 +1,19 @@
 #include "deck_io.h"
 
-#include <pspiofilemgr.h>
 #include <stdio.h>
 #include <string.h>
 
+#include <pspthreadman.h>
+
+#include "../../common/psp/io_mailbox.h"
 #include "../../common/psp/usb/psp_usb_io.h"
 #include "demo_peer.h"
 
-/* PPSSPP answers sceIoDevctl("kemulator:", EMULATOR_DEVCTL__IS_EMULATOR=3) (used by pspautotests);
- * real firmware has no such device and returns an error. Verified in PPSSPP 1.20.4 by the
- * status line of this app; the hardware branch is expected, not yet observed. */
-static int detect_emulator(void) {
-    unsigned int out = 0;
-    int r = sceIoDevctl("kemulator:", 3, NULL, 0, &out, sizeof out);
-    return r >= 0;
-}
+#define BRIDGE_GRACE_US 6000000u /* emulator: no bridge after this long -> built-in demo peer */
+
+static uint8_t mbox_mem[64 + 2 * 16384] __attribute__((aligned(64)));
+static psp_mbox_t mbox;
+static unsigned t_open;
 
 static void use_demo(deck_io_t *d, const char *why) {
     d->kind = DECK_IO_DEMO;
@@ -25,16 +24,22 @@ static void use_demo(deck_io_t *d, const char *why) {
 
 void deck_io_open(deck_io_t *d, int force_demo) {
     memset(d, 0, sizeof *d);
-    d->emulator = detect_emulator();
+    d->emulator = psp_is_emulator();
+    t_open = sceKernelGetSystemTimeLow();
     if (force_demo) {
         use_demo(d, "TRIANGLE held at start: demo mode");
         return;
     }
     if (d->emulator) {
-#ifdef DECK_HAVE_MAILBOX
-        if (deck_mailbox_open(d) == 0) return;
-#endif
-        use_demo(d, "PPSSPP: no USB; built-in demo Mac");
+        if (psp_mbox_init(&mbox, mbox_mem, sizeof mbox_mem, 16384, 16384) == 0) {
+            mbox.write_timeout_us = 0; /* never stall the UI if the bridge is gone */
+            d->kind = DECK_IO_MAILBOX;
+            d->name = "ppsspp-mailbox";
+            d->io = psp_mbox_io(&mbox);
+            snprintf(d->note, sizeof d->note, "PPSSPP: run tools/ppsspp_bridge.py");
+            return;
+        }
+        use_demo(d, "PPSSPP: mailbox init failed; demo Mac");
         return;
     }
     {
@@ -52,12 +57,19 @@ void deck_io_open(deck_io_t *d, int force_demo) {
     }
 }
 
-void deck_io_service(deck_io_t *d) {
+int deck_io_service(deck_io_t *d) {
     if (d->kind == DECK_IO_DEMO) demo_peer_step();
+    if (d->kind == DECK_IO_MAILBOX && !psp_mbox_bridge_seen(&mbox) &&
+        sceKernelGetSystemTimeLow() - t_open > BRIDGE_GRACE_US) {
+        use_demo(d, "PPSSPP: no bridge after 6 s; demo Mac");
+        return 1;
+    }
+    return 0;
 }
 
 int deck_io_ready(const deck_io_t *d) {
     if (d->kind == DECK_IO_USB) return psp_usb_state() == PSP_USB_STATE_CONNECTED;
+    if (d->kind == DECK_IO_MAILBOX) return psp_mbox_bridge_seen(&mbox);
     return 1;
 }
 
@@ -69,5 +81,6 @@ const char *deck_io_state_text(const deck_io_t *d) {
         default: return "USB off";
         }
     }
-    return d->kind == DECK_IO_MAILBOX ? "emulator bridge" : "demo (no Mac)";
+    if (d->kind == DECK_IO_MAILBOX) return psp_mbox_bridge_seen(&mbox) ? "bridge up" : "wait bridge";
+    return "demo, no Mac";
 }
