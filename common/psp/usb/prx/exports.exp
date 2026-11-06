@@ -1,0 +1,19 @@
+# pspmaclink.prx exports. "PspMacLink" (0x4001) = syscalls callable from the user-mode EBOOT.
+PSP_BEGIN_EXPORTS
+
+PSP_EXPORT_START(syslib, 0, 0x8000)
+PSP_EXPORT_FUNC(module_start)
+PSP_EXPORT_FUNC(module_stop)
+PSP_EXPORT_VAR(module_info)
+PSP_EXPORT_END
+
+PSP_EXPORT_START(PspMacLink, 0, 0x4001)
+PSP_EXPORT_FUNC(pmlStart)
+PSP_EXPORT_FUNC(pmlStop)
+PSP_EXPORT_FUNC(pmlState)
+PSP_EXPORT_FUNC(pmlWrite)
+PSP_EXPORT_FUNC(pmlRead)
+PSP_EXPORT_FUNC(pmlInfo)
+PSP_EXPORT_END
+
+PSP_END_EXPORTS

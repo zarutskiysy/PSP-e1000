@@ -43,3 +43,8 @@ ppsspp_state/
 
 # PPSSPP sandbox HOME (tools/ppsspp.py)
 .ppsspp_home/
+
+# generated PSP export stubs
+common/psp/usb/prx/PspMacLink.S
+common/psp/usb/prx/USBHostFS_driver.S
+common/psp/usbhostfs/USBHostFS*.S
