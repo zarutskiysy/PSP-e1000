@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import signal
 import sys
 import time
 
@@ -36,6 +37,10 @@ def log(*a):
     print("[psp_deck]", *a, file=sys.stderr, flush=True)
 
 
+def _on_sigterm(*_):
+    raise KeyboardInterrupt
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--transport", "-t", default="hostfs",
@@ -52,6 +57,7 @@ def main(argv=None) -> int:
                     help="real mode: exit instead of waiting when Accessibility is not granted")
     ap.add_argument("--check-config", action="store_true", help="validate the config and exit")
     a = ap.parse_args(argv)
+    signal.signal(signal.SIGTERM, _on_sigterm)  # so `kill` still writes the summary
 
     try:
         cfg = cfgmod.load(a.config)
