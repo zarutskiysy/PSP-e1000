@@ -61,6 +61,13 @@ int main(int argc, char **argv) {
     const char *shot = NULL, *press = NULL;
     uint32_t t0;
     bw_gfx_t g = {fbmem};
+    if (argc == 4 && !strcmp(argv[1], "--hackgen")) { /* golden check for the Python mirror */
+        uint8_t n, t[BW_HACK_MAX], v[BW_HACK_MAX];
+        bw_hack_generate((uint32_t)strtoul(argv[2], NULL, 0), (uint8_t)atoi(argv[3]), &n, t, v);
+        for (i = 0; i < n; i++) printf("%d%c", t[i], i + 1 < n ? ' ' : '\n');
+        for (i = 0; i < n; i++) printf("%d%c", v[i], i + 1 < n ? ' ' : '\n');
+        return 0;
+    }
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--demo")) demo = 1;
         else if (!strcmp(argv[i], "--bot")) bot = 1;

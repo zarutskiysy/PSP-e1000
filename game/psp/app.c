@@ -59,7 +59,8 @@ void bw_app_step(bw_app_t *a, uint32_t now_ms, uint16_t buttons, int8_t ax, int8
         bw_console_set_link(&a->con, 0);
         a->link.peer_hello = 0;
     }
-    if (!a->con.link_up && !a->io_dead && now_ms - a->last_hello_ms >= HELLO_PERIOD_MS) {
+    if (!a->con.link_up && !a->io_dead && now_ms - a->last_hello_ms >= HELLO_PERIOD_MS &&
+        (!a->peer_present || a->peer_present(a->peer_ctx))) {
         a->last_hello_ms = now_ms;
         if (psp_link_send_hello(&a->link, PSP_LINK_T_HELLO, BW_APP_ID, "blackwater_psp") == -2) a->io_dead = 1;
     }

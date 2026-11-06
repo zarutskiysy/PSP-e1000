@@ -13,6 +13,9 @@ typedef struct {
     const char *io_name;
     int io_dead;           /* io returned an error: stop using it */
     uint32_t last_rx_ms, last_hello_ms, now_ms;
+    /* optional: returns 0 while nobody can be listening (HELLOs are held back) */
+    int (*peer_present)(void *ctx);
+    void *peer_ctx;
     /* demo mode */
     int demo;
     demo_mac_t demo_mac;

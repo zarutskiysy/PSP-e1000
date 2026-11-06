@@ -12,9 +12,7 @@
 
 #include "app.h"
 #include "view.h"
-#ifdef BW_HAVE_MAILBOX
 #include "../../common/psp/io_mailbox.h"
-#endif
 #ifdef BW_HAVE_USB
 #include "../../common/psp/usb/psp_usb_io.h"
 #endif
@@ -40,22 +38,24 @@ static int cb_thread(SceSize args, void *argp) {
 static bw_app_t app;
 static char io_label[24];
 
-/* PPSSPP answers devctl("emulator:", 1 = GET_HAS_DISPLAY); real firmware has no such device. */
-static int in_emulator(void) {
-    int has = 0;
-    return sceIoDevctl("emulator:", 1, NULL, 0, &has, sizeof has) >= 0;
-}
+static psp_mbox_t mbox;
+static uint8_t mbox_mem[64 + 2 * 65536] __attribute__((aligned(64)));
+static int mbox_peer(void *ctx) { return psp_mbox_bridge_seen((const psp_mbox_t *)ctx); }
 
 static void select_io(uint16_t held) {
     if (held & BW_B_SELECT) { /* hold SELECT at boot: force the offline demo */
         bw_app_init_demo(&app);
         return;
     }
-    if (in_emulator()) {
-#ifdef BW_HAVE_MAILBOX
-        bw_app_init(&app, psp_mailbox_io(), "EMU");
-        return;
-#endif
+    if (psp_is_emulator()) {
+        /* PPSSPP: tools/ppsspp_bridge.py moves bytes between this mailbox and a Mac TCP port */
+        if (psp_mbox_init(&mbox, mbox_mem, sizeof mbox_mem, 65536, 65536) == 0) {
+            mbox.write_timeout_us = 100000; /* never stall the frame loop for long */
+            bw_app_init(&app, psp_mbox_io(&mbox), "EMU");
+            app.peer_present = mbox_peer;
+            app.peer_ctx = &mbox;
+            return;
+        }
     } else {
 #ifdef BW_HAVE_USB
         int r = psp_usb_start(PSP_USB_MODE_HOSTFS);
