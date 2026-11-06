@@ -130,13 +130,13 @@ static int menu(void) {
     while (running) {
         pspDebugScreenSetXY(0, 0);
         pspDebugScreenPrintf("PSP E1000 second screen\n\nChoose the link to the Mac:\n\n");
-        pspDebugScreenPrintf("  CROSS     USB maclink (fast; psp_screen.py --transport usb)%s\n",
+        pspDebugScreenPrintf("  CIRCLE    USB maclink (fast; psp_screen.py --transport usb)%s\n",
 #ifdef WITH_USB
                              "");
 #else
                              "  [not in build]");
 #endif
-        pspDebugScreenPrintf("  CIRCLE    USB hostfs  (fallback; usbhostfs_pc + --transport hostfs)%s\n",
+        pspDebugScreenPrintf("  CROSS     USB hostfs  (fallback; usbhostfs_pc + --transport hostfs)%s\n",
 #ifdef WITH_USB
                              "");
 #else
@@ -148,8 +148,9 @@ static int menu(void) {
         sceCtrlPeekBufferPositive(&pad, 1);
         unsigned down = pad.Buttons & ~prev;
         prev = pad.Buttons;
-        if (down & PSP_CTRL_CROSS) return MODE_USB;
-        if (down & PSP_CTRL_CIRCLE) return MODE_HOSTFS;
+        /* same buttons as examples/echo: CROSS = HOSTFS, CIRCLE = MACLINK */
+        if (down & PSP_CTRL_CIRCLE) return MODE_USB;
+        if (down & PSP_CTRL_CROSS) return MODE_HOSTFS;
         if (down & PSP_CTRL_TRIANGLE) return MODE_MAILBOX;
         if (down & PSP_CTRL_SQUARE) return MODE_REPLAY;
         sceDisplayWaitVblankStart();
