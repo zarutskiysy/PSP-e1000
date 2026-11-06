@@ -1,6 +1,7 @@
 /* Host unit tests for psp_link.h + link.c + io_pipe.c. Build/run: make -C common/psp/test */
 #include <stdio.h>
 #include <stdlib.h>
+#include "../io_mailbox.h"
 #include "../io_pipe.h"
 #include "../link.h"
 
@@ -111,6 +112,34 @@ static void test_link_pipe(void) {
     CHECK(psp_link_send(&a, 0x50, 0, NULL, 600) == -1); /* too big for tx buffer */
 }
 
+static void test_mailbox(void) {
+    static uint8_t mem[64 + 300 + 200] __attribute__((aligned(64)));
+    static uint8_t rx[512], tx[512], ch[128];
+    psp_mbox_t mb;
+    psp_link_t l;
+    psp_link_frame_t f;
+    uint8_t buf[600], frame[64];
+    uint32_t n, total = 0;
+    int i;
+    CHECK(psp_mbox_init(&mb, mem, sizeof mem, 300, 200) == 0);
+    CHECK(memcmp(mem, PSP_MBOX_MAGIC, 16) == 0 && mb.hdr->m2p_cap == 300 && !psp_mbox_bridge_seen(&mb));
+    psp_link_init(&l, psp_mbox_io(&mb), rx, sizeof rx, tx, sizeof tx, ch, sizeof ch);
+    mb.write_timeout_us = 0;
+    /* Mac -> PSP across the ring wrap, 30 frames of 17 bytes through a 300-byte ring */
+    for (i = 0; i < 30; i++) {
+        size_t fl = psp_link_encode(frame, sizeof frame, 0x77, 0, (uint16_t)i, "abcde", 5);
+        CHECK(psp_mbox_peer_write(&mb, frame, (uint32_t)fl) == fl);
+        CHECK(psp_link_poll(&l, 0, &f) == 1 && f.type == 0x77 && f.seq == i);
+    }
+    CHECK(psp_mbox_bridge_seen(&mb));
+    /* PSP -> Mac: ring full -> write fails with timeout 0 */
+    CHECK(psp_link_send(&l, 0x78, 0, buf, 150) == 0);
+    CHECK(psp_link_send(&l, 0x78, 0, buf, 150) == -2);
+    n = psp_mbox_peer_read(&mb, buf, sizeof buf);
+    total += n;
+    CHECK(total == 200); /* first frame + part of the second (stream is broken, that is expected) */
+}
+
 /* Golden vectors; the same frames are produced by common/python/pspmac/protocol.py (tests/test_golden.py). */
 static void golden(void) {
     uint8_t out[64];
@@ -132,6 +161,7 @@ int main(int argc, char **argv) {
     test_roundtrip_bytewise();
     test_junk_crc_oversize();
     test_link_pipe();
+    test_mailbox();
     if (fails) {
         fprintf(stderr, "%d check(s) failed\n", fails);
         return 1;
