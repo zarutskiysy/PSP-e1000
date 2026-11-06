@@ -1,0 +1,60 @@
+# PSP control deck bindings (Mac side). Read by controller/mac/psp_deck.py.
+# Actions:
+#   mouse:left|right|middle      press = button down, release = up (drag works)
+#   key:<combo>                  e.g. key:return, key:cmd+tab, key:cmd+shift+3 (repeats while held)
+#   media:playpause|next|previous|volup|voldown|mute
+#   mission_control              `open -a "Mission Control"`
+#   app:<Name>                   `open -a <Name>`
+#   shell:<command>              run via /bin/sh (fire-and-forget)
+#   mode:scroll                  while held, the nub scrolls instead of moving the cursor
+#   none
+# SELECT is reserved on the PSP: hold it to open the action wheel, aim with the nub, release to fire.
+
+[mouse]
+deadzone = 0.15        # fraction of the nub throw ignored around the centre (PSP nubs drift)
+max_speed = 1400       # cursor speed in points/s at full deflection
+exponent = 2.2         # speed = max_speed * deflection^exponent  (fine control near the centre)
+invert_y = false
+scroll_speed = 30      # lines/s at full deflection in scroll mode
+
+[keys]
+repeat_delay_ms = 400
+repeat_interval_ms = 60
+
+[buttons]
+L = "mouse:left"
+R = "mouse:right"
+UP = "key:up"
+DOWN = "key:down"
+LEFT = "key:left"
+RIGHT = "key:right"
+CROSS = "key:return"
+CIRCLE = "key:escape"
+SQUARE = "key:space"
+TRIANGLE = "mode:scroll"
+START = "media:playpause"
+
+# Action wheel: up to 8 slices, slice 0 at 12 o'clock, clockwise. Labels are sent to the PSP.
+[[wheel]]
+label = "Mission Ctrl"
+action = "mission_control"
+
+[[wheel]]
+label = "Play/Pause"
+action = "media:playpause"
+
+[[wheel]]
+label = "Screenshot"
+action = "key:cmd+shift+3"
+
+[[wheel]]
+label = "Next track"
+action = "media:next"
+
+[[wheel]]
+label = "Cmd+Tab"
+action = "key:cmd+tab"
+
+[[wheel]]
+label = "Downloads"
+action = "shell:open ~/Downloads"
