@@ -13,7 +13,7 @@
 #include "app.h"
 #include "view.h"
 #include "../../common/psp/io_mailbox.h"
-#ifdef BW_HAVE_USB
+#ifdef WITH_USB
 #include "../../common/psp/usb/psp_usb_io.h"
 #endif
 
@@ -57,12 +57,17 @@ static void select_io(uint16_t held) {
             return;
         }
     } else {
-#ifdef BW_HAVE_USB
+#ifdef WITH_USB
         int r = psp_usb_start(PSP_USB_MODE_HOSTFS);
         if (r >= 0) {
             bw_app_init(&app, psp_usb_io(), "USB");
+            bw_console_log(&app.con, "USB HOSTFS UP: RUN USBHOSTFS_PC");
             return;
         }
+        bw_app_init_demo(&app);
+        bw_console_log(&app.con, "USB FAILED - DEMO MODE:");
+        bw_console_log(&app.con, psp_usb_last_error());
+        return;
 #endif
     }
     bw_app_init_demo(&app); /* no real link available: scripted demo Mac */
@@ -126,7 +131,7 @@ int main(void) {
         sceDisplaySetFrameBuf(bufs[back], BW_STRIDE, PSP_DISPLAY_PIXEL_FORMAT_8888, PSP_DISPLAY_SETBUF_IMMEDIATE);
         back ^= 1;
     }
-#ifdef BW_HAVE_USB
+#ifdef WITH_USB
     if (!app.demo && strcmp(app.io_name, "USB") == 0) psp_usb_stop();
 #endif
     sceKernelExitGame();
