@@ -43,7 +43,7 @@ def cmd_list() -> int:
 def cmd_echo(spec: str, sizes: list[int], seconds: float) -> int:
     t = open_transport(spec, **({"wait": 10.0} if spec.startswith("usb") else {}))
     link = Link(t, name="usb_probe")
-    peer = link.handshake(timeout=5)
+    peer = link.handshake(timeout=2, attempts=15)
     print(f"peer: {peer.name!r} role={peer.role} app={peer.app} max_payload={peer.max_payload}")
     rtts = [link.ping(timeout=2) * 1e3 for _ in range(50)]
     print(f"RESULT {spec} ping rtt ms: min {min(rtts):.2f} median {statistics.median(rtts):.2f} max {max(rtts):.2f}")
@@ -68,12 +68,15 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["list", "echo"])
     ap.add_argument("--spec", default="usb", help="usb | hostfs | mock | tcp:H:P")
-    ap.add_argument("--sizes", default="512,4096,16384,65000")
+    ap.add_argument("--sizes", default=None,
+                    help="default 512,4096,16384,65000; for hostfs 256,1024,3000 because usbhostfs keeps only a "
+                         "4 KiB Mac->PSP ring per async channel and silently drops overflow (usbhostfs/main.c fill_async)")
     ap.add_argument("--seconds", type=float, default=2.0, help="per size")
     a = ap.parse_args(argv)
     if a.cmd == "list":
         return cmd_list()
-    return cmd_echo(a.spec, [int(x) for x in a.sizes.split(",")], a.seconds)
+    sizes = a.sizes or ("256,1024,3000" if a.spec == "hostfs" else "512,4096,16384,65000")
+    return cmd_echo(a.spec, [int(x) for x in sizes.split(",")], a.seconds)
 
 
 if __name__ == "__main__":

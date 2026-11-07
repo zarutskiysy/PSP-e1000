@@ -1,6 +1,6 @@
 """Real PSP code in PPSSPP <-> Mac Link, through tools/ppsspp_bridge.py (mailbox over the debugger).
 
-Skipped when PPSSPP or the PSP toolchain is missing. Uses its own debugger port (45690)."""
+Skipped when PPSSPP or the PSP toolchain is missing. Uses debugger port 45690 (override: PSP_E2E_PPSSPP_PORT)."""
 import os
 import pathlib
 import shutil
@@ -19,7 +19,7 @@ from pspmac.transport import TcpTransport  # noqa: E402
 
 PPSSPP = os.environ.get("PPSSPP_BIN", "/Applications/PPSSPPSDL.app/Contents/MacOS/PPSSPPSDL")
 PSPDEV = pathlib.Path(os.environ.get("PSPDEV", pathlib.Path.home() / "pspdev"))
-PORT = 45690
+PORT = int(os.environ.get("PSP_E2E_PPSSPP_PORT", "45690"))
 
 pytestmark = pytest.mark.skipif(not (os.path.exists(PPSSPP) and (PSPDEV / "bin/psp-gcc").exists()),
                                 reason="PPSSPP or pspdev toolchain not installed")

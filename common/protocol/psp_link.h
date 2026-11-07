@@ -216,7 +216,8 @@ static inline void psp_link_parser_reset(psp_link_parser_t *p) {
  * Feeds up to n bytes. Returns 1 as soon as one valid frame is complete (filled into *out,
  * *consumed = bytes used so far), 0 when all n bytes were consumed without completing a
  * frame. Call in a loop, advancing data by *consumed, until it returns 0.
- * Frames with a bad CRC or a payload larger than cap are dropped and counted.
+ * Frames with a bad CRC or a payload larger than cap are dropped and counted; on an oversize header
+ * the parser resyncs immediately (the payload bytes are then scanned for the next magic).
  */
 static inline int psp_link_parser_feed(psp_link_parser_t *p, const uint8_t *data, size_t n, size_t *consumed,
                                        psp_link_frame_t *out) {
@@ -256,7 +257,14 @@ static inline int psp_link_parser_feed(psp_link_parser_t *p, const uint8_t *data
                 p->crc = psp_link_crc16(p->hdr, PSP_LINK_HEADER_SIZE);
                 p->ppos = 0;
                 p->cpos = 0;
-                p->oversize = p->len > p->cap;
+                p->oversize = 0;
+                if (p->len > p->cap) {
+                    /* Too big for us (or a corrupt length): count it and resync right after the
+                     * magic instead of skipping `len` bytes, so a bogus 4 GB length cannot stall. */
+                    p->oversize_frames++;
+                    p->state = PSP_LINK_S_MAGIC0;
+                    break;
+                }
                 p->state = p->len ? PSP_LINK_S_PAYLOAD : PSP_LINK_S_CRC;
             }
             break;
