@@ -18,10 +18,11 @@ Start: 2026-11-07 02:22 MSK. Hard stop: ~10:20 MSK.
 - Scouts (reviewers later via SendMessage): A af8362116ea1960f5, B a54fbefada454fcb1, C af3b7d072c18b0947
 - caffeinate (bg)
 
-## Track progress
-- A feat/mac-controller: builder done 1ac47c6 (~03:00); orchestrator verified clean clone: make -C controller/psp OK, 76 tests pass, authorship clean. Review: scout A running (since ~03:03).
-- B feat/second-screen: builder done eac982e (~03:02); verified clean clone: make -C screen/psp OK, codec tests OK, 42 pass/2 skip. Review: scout B running (since ~03:04).
-- C feat/dual-screen-game: builder running.
+## Track progress (03:17)
+- A mac-controller: DONE at 878abe2 (review 2: no blocking; 82 tests incl. PPSSPP e2e; orchestrator clean-clone verified).
+- B second-screen: fixes at af66cb8 (orchestrator verified: merged main, 47 pass); review 2 running.
+- C dual-screen-game: builder v1 700c02d verified (build, host tests, 22 pass); review 1 by scout C running.
+- main 6accb53: parser resync on bogus length (from review A).
 
 ## Next
 - When a builder reports: verify (clean clone of branch, build, tests), then SendMessage its scout to review

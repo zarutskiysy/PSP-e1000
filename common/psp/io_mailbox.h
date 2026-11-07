@@ -16,7 +16,8 @@
  *  44  p2m_tail  total bytes consumed by the Mac  (bridge writes)
  *  48  bridge_beat  incremented by the bridge every poll (0 = no bridge seen yet)
  *  52  psp_beat     incremented by the PSP on every io call
- *  56  reserved[2]
+ *  56  boot_id      set by the PSP at init (timer value); a change tells the bridge the app restarted
+ *  60  reserved
  * Counters are free-running u32; ring index = counter % cap.
  *
  * Never use on real hardware (nothing would read it). Pick it when psp_is_emulator() is true.
@@ -40,7 +41,8 @@ typedef struct {
     volatile uint32_t p2m_tail;
     volatile uint32_t bridge_beat;
     volatile uint32_t psp_beat;
-    uint32_t reserved[2];
+    uint32_t boot_id;
+    uint32_t reserved;
 } psp_mbox_hdr_t;
 
 typedef struct {

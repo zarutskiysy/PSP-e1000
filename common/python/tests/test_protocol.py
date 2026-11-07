@@ -47,3 +47,11 @@ def test_golden_matches_c():
         P.encode(P.T_BYE, b"", 65535, P.F_LAST).hex(),
     ]
     assert out == py
+
+
+def test_bogus_huge_length_does_not_stall():
+    import struct
+    bogus = b"PL" + struct.pack("<BBHI", 0x10, 0, 0, 0xFFFFFFF0)
+    p = P.Parser(max_payload=4096)
+    frames = p.feed(bogus + b"".join(P.encode(0x11, b"ok", i) for i in range(30)))
+    assert len(frames) == 30 and p.oversize_frames == 1

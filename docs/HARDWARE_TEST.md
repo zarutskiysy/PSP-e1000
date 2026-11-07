@@ -52,4 +52,4 @@ Leave the cable plugged in. Exit USB mode on the PSP.
 | `usb_probe list` shows nothing but PSP says state 2 | libusb not found | `brew install libusb`; check `/opt/homebrew/lib/libusb-1.0.dylib`. |
 | `usb_probe echo --spec usb` times out after HELLO | ZLP / endpoint issue in pspmaclink | Run `--sizes 100` only; report the PSP screen counters (rx/tx bytes, last err). |
 | hostfs: `usbhostfs_pc` never says connected | PID mismatch | `usbhostfs_pc -p 0x1c9 -vv`. |
-| PSP freezes | kernel bug in pspmaclink.prx | Hold POWER 10 s. Report which mode and what you did; HOSTFS mode does not use our USB driver code. |
+| PSP freezes | kernel bug in pspmaclink.prx | Hold POWER 10 s. Report which mode and what you did; HOSTFS mode does not use our own bulk driver (pspmaclink only starts usbhostfs and forwards its channel 4). |
