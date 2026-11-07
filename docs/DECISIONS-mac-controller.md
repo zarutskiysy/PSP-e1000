@@ -1,0 +1,25 @@
+# Decisions — feat/mac-controller (Builder A, 2026-11-07 night)
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | Transport on hardware is psplink **HOSTFS async channel 4** → `usbhostfs_pc` → TCP 10004 (spec `hostfs`). MACLINK and HID are not used. | Recommended by the research (`docs/research/mac-controller.md`); low bandwidth; no custom USB code in this track. |
+| 2 | Message types 0x10–0x15 with fixed-size LE payloads, in `controller/proto_controller.h` plus a Python mirror. A test parses the C header and compares. | Task spec; avoids C/Python drift. |
+| 3 | INPUT_STATE is sent every vblank (60 Hz), not only on change. | A steady rate gives smooth cursor motion and acts as a heartbeat (stale-input release). It is 28 B/frame, trivial for USB. 125 Hz would need a separate sampling thread; deferred. |
+| 4 | **Mapping happens on the Mac.** The PSP sends raw buttons/nub plus a timestamp. Deadzone, curve and integration over the PSP timestamp delta (clamped to 50 ms) all run on the Mac. | Tunable without reflashing. USB or bridge batching doesn't change the distance moved. Testable in pure Python. |
+| 5 | Defaults: deadzone 0.15, 1400 pt/s, exponent 2.2, key repeat 400/60 ms. | Usual values for analog-stick pointers; all are in `deck.toml`. Taste, not measured. |
+| 6 | The daemon generates its own key auto-repeat (with `kCGKeyboardEventAutorepeat`). | It is UNVERIFIED whether macOS auto-repeats synthetic key-downs. Our own repeat is deterministic and testable. |
+| 7 | **SELECT is hard-wired** on the PSP as the wheel button (hold, aim, release). The Mac config can't rebind it. | The PSP must know locally when the wheel is open to draw it with no round trip. The PSP decides the slice (0 = 12 o'clock, clockwise) and sends WHEEL_FIRE(slice). |
+| 8 | While the wheel is open the PSP sets flag bit0, and the Mac freezes the cursor. | Aiming with the nub must not move the mouse. |
+| 9 | One-shot actions (media/shell/app/mission_control) fire on press only. mouse/key follow press and release. | Matches physical expectations (drag with L, hold arrow to repeat). |
+| 10 | Mission Control = `open -a "Mission Control"`; screenshot slice = `key:cmd+shift+3` (as the task asked); `screencapture` is possible via `shell:`. | Research facts #26/#27. `ctrl+up` is a documented fallback in the troubleshooting table. |
+| 11 | Media keys: NSEvent systemDefined subtype 8 recipe. | Research fact #24; constants checked in the local SDK `ev_keymap.h`. Not tested live. |
+| 12 | Real mode with no Accessibility: prompt via `AXIsProcessTrustedWithOptions`, print instructions, **poll until granted** (`--no-ax-wait` exits with code 3 instead). Dry-run never checks. | Hardware test flow: grant, then it continues without a restart (UNVERIFIED whether TCC applies without a restart). |
+| 13 | Key codes come from the local SDK `HIToolbox/Events.h` (grepped). Modifier masks are checked against `Quartz.kCGEventFlagMask*` in a test. | No hand-typed constants. |
+| 14 | PSP UI is software-rendered into a RAM back buffer, then memcpy'd to VRAM 0x04000000 after vblank. The wheel uses a precomputed per-pixel slice map. Text uses the pspsdk debug font. | No GU code (POC over polish). Single display buffer at 0x04000000, which is what `tools/ppsspp.py shot` falls back to. atan2 per pixel per frame would be too slow on the PSP. |
+| 15 | io selection in one file (`deck_io.c`): emulator → mailbox; else USB HOSTFS; else (or **△ held at boot**, or no bridge within 6 s in PPSSPP) the in-process demo peer. | Task spec. The UI is always usable, including on hardware without a Mac. |
+| 16 | Mailbox `write_timeout_us = 0` and 16 KiB rings in the deck. | Must never stall the UI loop when the bridge is gone; the deck's traffic is tiny. |
+| 17 | `make -C controller/psp` builds with USB by default (`USB=1`, main's `usb.mk`). `USB=0` builds the emulator-only EBOOT with `usb_stub.c`. | One-command build with the real USB path, as the orchestrator suggested. The USB EBOOT still runs in PPSSPP (verified by the emulator e2e test). |
+| 18 | HOSTFS quirks (from the orchestrator). usbhostfs has a 4 KiB Mac→PSP ring that drops overflow, so all Mac→PSP frames are ≤ 208 B and the PSP drains its link every frame. `usbhostfs_pc` accepts TCP before the PSP attaches, so the daemon re-sends HELLO every 1 s until answered and re-sends WHEEL_CONFIG on any later HELLO/CONFIG_REQ (PSP restart). | `controller/tests/test_deck_hostfs_session.py`. |
+| 19 | pyobjc 13.0 (Quartz, Cocoa, ApplicationServices, core) was installed into the shared main venv and pinned in `requirements.txt`. | Needed for the CGEvent backend and for `AXIsProcessTrusted`. |
+| 20 | Test files are named `test_deck_*` where they would clash with main's (`test_emulator_e2e.py`). | pytest rootless module-name clash when running `common/python/tests` and `controller/tests` together. |
+| 21 | The emulator e2e test uses this track's PPSSPP port 45671. | Assigned by the orchestrator; other builders use 45672/45673. |
