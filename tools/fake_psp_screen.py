@@ -12,6 +12,9 @@ Plugin args (after `--`):
     --decoder c|py        C decoder via ctypes (default) or the Python reference decoder
     --ack-delay-ms N      pretend decoding takes N ms (tests flow control)
     --drop-chunk N        drop the N-th received chunk once (tests NEED_KEY recovery)
+    --max-unread N        count link frames > N bytes (what a 4 KiB HOSTFS ring would drop)
+    --stats-file F        write "chunk_acks overflows frames_shown" after every frame
+Chunks with PSP_LINK_F_ACK_REQ get an SCR_CHUNK_ACK, like the PSP app (HOSTFS stop-and-wait).
 """
 from __future__ import annotations
 
@@ -119,6 +122,9 @@ class Plugin:
         ap.add_argument("--decoder", default="c", choices=["c", "py"])
         ap.add_argument("--ack-delay-ms", type=float, default=0.0)
         ap.add_argument("--drop-chunk", type=int, default=-1)
+        ap.add_argument("--max-unread", type=int, default=0,
+                        help="flag link frames bigger than this (HOSTFS 4 KiB ring check); count is in --stats-file")
+        ap.add_argument("--stats-file", help="write 'chunk_acks overflows frames' here on every frame")
         self.a = ap.parse_args(args)
         self.scr = CScreen() if self.a.decoder == "c" else PyScreen()
         self.frames_shown = 0
@@ -127,6 +133,7 @@ class Plugin:
         self.chunks_seen = 0
         self.fps_t0, self.fps_n, self.fps_x10 = time.monotonic(), 0, 0
         self.probe = dict(bytes=0, frames=0, t0=None, t1=None)
+        self.chunk_acks = self.overflows = 0
 
     def on_connect(self, link):
         link.name = "fake_psp_screen"
@@ -150,6 +157,11 @@ class Plugin:
             self.chunks_seen += 1
             if self.chunks_seen == self.a.drop_chunk:
                 return
+            if (f.flags & P.F_ACK_REQ) and not (f.payload[9] & S.SCR_CF_LAST):
+                link.send(S.SCR_T_CHUNK_ACK, S.CHUNK_ACK.pack(*struct.unpack_from("<IH", f.payload)))
+                self.chunk_acks += 1
+            if self.a.max_unread and len(f.payload) + P.OVERHEAD > self.a.max_unread:
+                self.overflows += 1  # a real HOSTFS ring would have dropped bytes here
             t0 = time.perf_counter()
             r = self.scr.chunk(f.payload)
             self.dec_us += int((time.perf_counter() - t0) * 1e6)
@@ -159,6 +171,8 @@ class Plugin:
                 present_us = int((time.perf_counter() - t1) * 1e6)
                 self.frames_shown += 1
                 self._dump()
+                if self.a.stats_file:
+                    pathlib.Path(self.a.stats_file).write_text(f"{self.chunk_acks} {self.overflows} {self.frames_shown}")
                 self.fps_n += 1
                 now = time.monotonic()
                 if now - self.fps_t0 >= 1.0:

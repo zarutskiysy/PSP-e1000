@@ -163,7 +163,7 @@ typedef struct {
     uint32_t fps_x10, kbps;          /* last second */
     uint32_t dec_us, present_us;     /* last frame */
     uint32_t frames_shown, rx_bytes;
-    uint32_t probe_bytes, probe_frames, probe_t0, probe_t1;
+    uint32_t probe_bytes, probe_frames, probe_t0, probe_t1, probe_first;
     int probe_active;
 } stats_t;
 
@@ -260,7 +260,14 @@ int main(int argc, char *argv[]) {
                 uint32_t t0 = sceKernelGetSystemTimeLow();
                 int dr = scr_dec_chunk(&dec, f.payload, f.len, scratch, sizeof scratch);
                 st.dec_us += sceKernelGetSystemTimeLow() - t0;
-                if (dr == SCR_DEC_FRAME_DONE || (dr < 0 && f.len >= SCR_CHUNK_HDR && (f.payload[9] & SCR_CF_LAST))) {
+                int last = f.len >= SCR_CHUNK_HDR && (f.payload[9] & SCR_CF_LAST);
+                if (!last && (f.flags & PSP_LINK_F_ACK_REQ) && f.len >= 6) { /* HOSTFS stop-and-wait */
+                    uint8_t ca[SCR_CHUNK_ACK_SIZE];
+                    memcpy(ca, f.payload, 4);     /* frame_id */
+                    memcpy(ca + 4, f.payload + 4, 2); /* chunk_idx */
+                    psp_link_send(&link, SCR_T_CHUNK_ACK, 0, ca, sizeof ca);
+                }
+                if (dr == SCR_DEC_FRAME_DONE || (dr < 0 && last)) {
                     if (mode == MODE_REPLAY) { /* pace the recording at ~30 fps */
                         int32_t wait = 33333 - (int32_t)(sceKernelGetSystemTimeLow() - last_frame_t);
                         if (wait > 0) sceKernelDelayThread(wait);
@@ -282,7 +289,7 @@ int main(int argc, char *argv[]) {
                 st.probe_bytes = st.probe_frames = 0;
                 st.probe_active = 0;
             } else if (f.type == SCR_T_PROBE_DATA) {
-                if (!st.probe_active) st.probe_t0 = now, st.probe_active = 1;
+                if (!st.probe_active) st.probe_t0 = now, st.probe_active = 1, st.probe_first = nbytes;
                 st.probe_t1 = now;
                 st.probe_bytes += nbytes;
                 st.probe_frames++;
@@ -298,7 +305,8 @@ int main(int argc, char *argv[]) {
                 pspDebugScreenPrintf("probe: %lu bytes in %lu us = %lu KB/s     \n", (unsigned long)st.probe_bytes,
                                      (unsigned long)(st.probe_t1 - st.probe_t0),
                                      (unsigned long)(st.probe_t1 != st.probe_t0
-                                                         ? (uint64_t)st.probe_bytes * 1000 / (st.probe_t1 - st.probe_t0)
+                                                         ? (uint64_t)(st.probe_bytes - st.probe_first) * 1000 /
+                                                               (st.probe_t1 - st.probe_t0)
                                                          : 0));
                 st.probe_active = 0;
             } else if (f.type == PSP_LINK_T_HELLO) {

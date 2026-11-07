@@ -60,7 +60,7 @@ class FrameStats:
 
 @dataclass
 class Encoder:
-    lz4: str = "auto"            # "off" | "on" | "auto" (use LZ4 when it saves >= 10%)
+    lz4: str = "auto"            # "off" | "on" (when it shrinks at all) | "auto" (when it saves >= 10%)
     max_payload: int = SCR_MAX_PAYLOAD
     prev: np.ndarray | None = None
     frame_id: int = 0
@@ -110,7 +110,8 @@ class Encoder:
             codec, data = SCR_CODEC_RAW, body
             if self.lz4 != "off":
                 c = lz4.block.compress(body, store_size=False)
-                if self.lz4 == "on" or len(c) <= 0.9 * len(body):
+                # "on": LZ4 unless it does not shrink (keeps payloads <= max_payload); "auto": only if >= 10 % smaller
+                if (self.lz4 == "on" and len(c) < len(body)) or len(c) <= 0.9 * len(body):
                     codec, data = SCR_CODEC_LZ4, c
                     st.lz4_chunks += 1
             cf = cflags_base | (SCR_CF_LAST if ci == len(bodies) - 1 else 0)

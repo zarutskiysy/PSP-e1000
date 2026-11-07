@@ -128,3 +128,23 @@ def test_eboot_builds():
     env = dict(os.environ, PATH=os.path.expanduser("~/pspdev/bin") + ":" + os.environ["PATH"])
     subprocess.run(["make", "-s", "-C", str(ROOT / "screen/psp")], check=True, env=env)
     assert (ROOT / "screen/psp/EBOOT.PBP").stat().st_size > 10000
+
+
+def test_lz4_on_never_exceeds_max_payload():
+    """Incompressible content with --lz4 on must fall back to raw so payloads stay <= 64 KiB."""
+    rng = np.random.default_rng(3)
+    noise = rng.integers(0, 65536, (S.SCR_H, S.SCR_W), dtype=np.uint16)
+    enc = Encoder(lz4="on")
+    chunks = enc.encode(noise)
+    assert max(len(p) for p in chunks) <= S.SCR_MAX_PAYLOAD
+    c = CScreen()
+    for p in chunks:
+        assert c.chunk(p) >= 0
+    c.present()
+    assert np.array_equal(c.visible, noise)
+
+
+def test_hostfs_chunk_size():
+    enc = Encoder(lz4="auto", max_payload=3000)
+    chunks = enc.encode(make_source("video-ish").frame(0))
+    assert chunks and max(len(p) for p in chunks) <= 3000

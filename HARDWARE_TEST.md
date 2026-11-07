@@ -13,7 +13,7 @@ $PY -m pip install -r requirements.txt                     # numpy, mss, pyobjc 
 source tools/env.sh
 make -C screen/psp clean && make -C screen/psp             # USB build by default
 ls -l screen/psp/{EBOOT.PBP,pspmaclink.prx,usbhostfs.prx}
-$PY -m pytest -q screen/tests                              # expect: 34 passed, 2 skipped
+$PY -m pytest -q screen/tests                              # expect: 38 passed, 2 skipped
 ```
 
 ## 1. Copy to the memory stick (2 min)
@@ -43,6 +43,8 @@ $PY screen/mac/psp_screen.py probe --transport usb --sizes 16,64,256 --mb 8
 ```
 
 Expected: `USB speed code: 3`, then one line per transfer size and a Markdown table. Scout estimate: **8–16 MB/s**. The PSP shows `probe: … KB/s`.
+
+This is the **app-level ceiling**, not raw USB. Every byte goes through pspmaclink.prx and then the PSP's `psp_link` parser, which does a memcpy plus CRC-16 per byte. So it is the best any stream mode can do. The PSP-timed number starts its clock when the first probe frame has been parsed, so that frame's bytes are excluded from it. The Mac wall-clock number includes everything.
 
 Paste the table into `docs/MORNING_REPORT.md` and into the verdict in `screen/README.md`. The line `raw full-frame ceiling N fps` = MB/s ÷ 261,120 B.
 
@@ -92,9 +94,17 @@ Variants:
 
 ## 7. Fallback: HOSTFS mode (only if MACLINK fails, 3 min)
 
+psplink's usbhostfs keeps only a **4 KiB** Mac→PSP buffer per async channel and silently drops overflow (`common/psp/usbhostfs/usbasync.h` `MAX_ASYNC_BUFFER`, `main.c` `fill_async`). So in HOSTFS mode the sender automatically switches to:
+- chunks of at most 3000 B (`--max-chunk 3000`);
+- stop-and-wait per chunk: the PSP ACKs each chunk before the next is sent (`--chunk-ack`);
+- one frame in flight (`--window 1`).
+
+That is **very slow**: one USB round trip per 3 KB. Expect a few fps at best for small UI changes, and seconds per keyframe (ESTIMATE, never measured). Use it only to show that the picture path works when MACLINK doesn't. The bulk `probe` refuses HOSTFS.
+
 1. Mac, tab 1: `~/pspdev/bin/usbhostfs_pc -v` (keep it running).
 2. PSP: start the app, press **✕** (USB hostfs).
-3. Mac, tab 2: `$PY screen/mac/psp_screen.py --transport hostfs --source test-pattern --fps 30 --duration 20`, then `$PY screen/mac/psp_screen.py probe --transport hostfs --mb 4`.
+3. Mac, tab 2, link check with small messages: `$PY tools/usb_probe.py echo --spec hostfs --sizes 512,2048`.
+4. Picture: `$PY screen/mac/psp_screen.py --transport hostfs --source test-pattern --fps 10 --duration 30 --lz4 auto`. Expected: the test pattern appears, possibly slowly. The Mac `[stats]` line shows the real fps.
 
 ## Results to record
 
@@ -121,5 +131,7 @@ Variants:
 | Garbage tiles that heal after ≤5 s | lost chunks, keyframe recovery working | Report the `c` (CRC/oversize) counter. |
 | `Screen Recording permission not granted` after enabling it | terminal not restarted, or a different app hosts the shell | Quit and reopen the terminal; enable the app that actually runs Python (e.g. Cursor). |
 | `ScreenCaptureKit did not answer` / black frames | SCK path unverified tonight | `--capture mss`. |
-| PSP freezes | kernel-mode bug in pspmaclink.prx | Hold POWER 10 s. Try HOSTFS mode (step 7), which uses psplink's driver instead. |
+| PSP freezes | kernel-mode bug in pspmaclink.prx | Hold POWER 10 s. Report which step. HOSTFS (step 7) only checks the link and picture path; it uses psplink's driver, which is too slow for real use. |
+| Mac: `link lost …; reconnecting for up to 30 s` | PSP app restarted, cable unplugged, or USB reset | Start the app again (○) or replug. The sender re-opens USB, re-handshakes and sends a keyframe (`--reconnect S`, 0 = exit). If it gives up, re-run the command. |
+| HOSTFS: garbage, `c` counter rising, or `no CHUNK_ACK` | usbhostfs 4 KiB ring overflowed | Make sure you did not pass `--no-chunk-ack` or a larger `--max-chunk`. Try `--max-chunk 2000`. |
 | PSP dims / sleeps | — | The app calls `scePowerTick` every second; report it if it still sleeps. |

@@ -91,3 +91,39 @@ def test_record_stream(tmp_path):
         c.chunk(fr.payload)
     c.present()
     assert np.array_equal(c.visible, make_source(DESKTOP).frame(0))
+
+
+def test_hostfs_style_stop_and_wait(tmp_path):
+    """HOSTFS mode: <= 3000 B chunks, one chunk unread at a time (CHUNK_ACK), window 1 -> nothing would
+    overflow usbhostfs's 4 KiB ring, and the picture is still pixel-exact."""
+    got, want, stats = tmp_path / "psp.png", tmp_path / "src.png", tmp_path / "stats.txt"
+    fake, port = start_fake(tmp_path, "--dump-final", str(got), "--max-unread", "4096", "--stats-file", str(stats))
+    send(port, "--source", "video-ish", "--fps", "0", "--frames", "6", "--max-chunk", "3000", "--chunk-ack",
+         "--save-last", str(want))
+    fake.wait(timeout=30)
+    chunk_acks, overflows, frames = map(int, stats.read_text().split())
+    assert overflows == 0 and chunk_acks > 50 and frames == 6
+    assert np.array_equal(np.asarray(Image.open(got)), np.asarray(Image.open(want)))
+
+
+def test_reconnect_after_psp_restart(tmp_path):
+    """Kill the PSP side mid-stream and start it again: the sender reconnects and resends a keyframe."""
+    import time
+    got1, got2, want = tmp_path / "a.png", tmp_path / "b.png", tmp_path / "src.png"
+    fake, port = start_fake(tmp_path, "--dump-final", str(got1))
+    snd = subprocess.Popen([PY, str(ROOT / "screen/mac/psp_screen.py"), "--transport", f"tcp:127.0.0.1:{port}",
+                            "--source", "test-pattern", "--fps", "20", "--frames", "100", "--key-interval", "0",
+                            "--save-last", str(want), "--reconnect", "20"],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=ROOT)
+    time.sleep(1.5)
+    fake.kill()
+    fake.wait()
+    time.sleep(1.0)
+    fake2 = subprocess.Popen([PY, str(ROOT / "tools/fake_psp.py"), "--port", str(port), "--once", "--quiet",
+                              "--app", "2", "--plugin", str(ROOT / "tools/fake_psp_screen.py"), "--",
+                              "--dump-final", str(got2)], cwd=ROOT)
+    out, _ = snd.communicate(timeout=60)
+    fake2.wait(timeout=30)
+    assert snd.returncode == 0, out
+    assert "reconnected" in out, out
+    assert np.array_equal(np.asarray(Image.open(got2)), np.asarray(Image.open(want)))

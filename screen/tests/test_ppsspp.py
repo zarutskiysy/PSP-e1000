@@ -1,5 +1,7 @@
 """Optional: the real EBOOT in PPSSPP (replay + live mailbox bridge), pixel-exact.
-Slow (~1 min) and needs PPSSPP + the PSP toolchain: run with RUN_PPSSPP=1."""
+Slow (~1 min) and needs PPSSPP + the PSP toolchain: run with RUN_PPSSPP=1.
+Ports: PSP_SCREEN_PPSSPP_PORT (debugger, default 45672), PSP_SCREEN_BRIDGE_PORT (bridge, default 47102);
+ppsspp_e2e.py reads both from the environment, which subprocess inherits."""
 import os
 import pathlib
 import subprocess

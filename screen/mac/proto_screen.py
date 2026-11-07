@@ -16,6 +16,7 @@ SCR_MAX_BODY = SCR_MAX_PAYLOAD - SCR_CHUNK_HDR
 
 SCR_T_CHUNK = 0x40
 SCR_T_ACK = 0x41
+SCR_T_CHUNK_ACK = 0x42
 SCR_T_PROBE_DATA = 0x50
 SCR_T_PROBE_END = 0x51
 SCR_T_PROBE_RESULT = 0x52
@@ -30,11 +31,13 @@ SCR_TAG_INDEX_MASK = 0x0FFF
 SCR_ACKF_NEED_KEY = 0x0001
 SCR_ACK_SIZE = 32
 SCR_PROBE_RESULT_SIZE = 20
+SCR_CHUNK_ACK_SIZE = 6
 
 CHUNK_HDR = struct.Struct("<IHHBBHI")  # frame_id, chunk_idx, n_items, codec, cflags, reserved, body_len
 ACK = struct.Struct("<IIIIIIHHI")
 PROBE_RESULT = struct.Struct("<IIIII")
-assert CHUNK_HDR.size == SCR_CHUNK_HDR and ACK.size == SCR_ACK_SIZE and PROBE_RESULT.size == SCR_PROBE_RESULT_SIZE
+CHUNK_ACK = struct.Struct("<IH")  # frame_id, chunk_idx
+assert CHUNK_ACK.size == SCR_CHUNK_ACK_SIZE and CHUNK_HDR.size == SCR_CHUNK_HDR and ACK.size == SCR_ACK_SIZE and PROBE_RESULT.size == SCR_PROBE_RESULT_SIZE
 
 
 @dataclass

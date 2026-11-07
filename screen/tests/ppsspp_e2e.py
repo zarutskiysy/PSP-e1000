@@ -16,6 +16,7 @@ Exit code 0 = pixel-exact.
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import shutil
 import subprocess
@@ -44,7 +45,10 @@ def main() -> int:
     ap.add_argument("--mode", default="replay", choices=["replay", "mailbox"])
     ap.add_argument("--source", default="image:screen/tests/data/desktop.png")
     ap.add_argument("--frames", type=int, default=60)
-    ap.add_argument("--port", type=int, default=45672)
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PSP_SCREEN_PPSSPP_PORT", "45672")),
+                    help="PPSSPP debugger port (env PSP_SCREEN_PPSSPP_PORT)")
+    ap.add_argument("--listen", type=int, default=int(os.environ.get("PSP_SCREEN_BRIDGE_PORT", "47102")),
+                    help="bridge TCP port for the sender (env PSP_SCREEN_BRIDGE_PORT)")
     ap.add_argument("--shot", help="also save a PPSSPP screenshot PNG here")
     ap.add_argument("--wait", type=float, default=6.0)
     ap.add_argument("--fps", type=float, default=30.0, help="mailbox: sender target fps")
@@ -52,7 +56,6 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="leave PPSSPP running")
     a = ap.parse_args()
 
-    import os
     pspdev = os.environ.get("PSPDEV", os.path.expanduser("~/pspdev"))
     env = dict(os.environ, PATH=f"{pspdev}/bin:" + os.environ["PATH"])
     subprocess.run(["make", "-s", "-C", str(ROOT / "screen" / "psp")], check=True, env=env)
@@ -69,9 +72,9 @@ def main() -> int:
     try:
         if a.mode == "mailbox":
             bridge = subprocess.Popen([PY, str(ROOT / "tools/ppsspp_bridge.py"), "--port", str(a.port),
-                                       "--listen", "47102"], cwd=ROOT)
+                                       "--listen", str(a.listen)], cwd=ROOT)
             time.sleep(2)
-            sender = subprocess.Popen([PY, str(ROOT / "screen/mac/psp_screen.py"), "--transport", "tcp:127.0.0.1:47102",
+            sender = subprocess.Popen([PY, str(ROOT / "screen/mac/psp_screen.py"), "--transport", f"tcp:127.0.0.1:{a.listen}",
                                        "--source", a.source, "--fps", str(a.fps), "--frames", str(a.frames), "--lz4", a.lz4,
                                        "--ack-timeout", "20", "--handshake-timeout", "30"], cwd=ROOT)
             sender.wait(timeout=600)

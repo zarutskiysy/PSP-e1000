@@ -69,24 +69,65 @@ def save_png(frame565: np.ndarray, path: str) -> None:
 
 
 # --------------------------------------------------------------------------------------------- send
-def cmd_send(a) -> int:
-    src = make_source(a.source, a.capture)
+HOSTFS_MAX_CHUNK = 3000  # usbhostfs keeps a 4 KiB Mac->PSP async ring and drops overflow (usbasync.h)
+
+
+def apply_transport_defaults(a) -> None:
+    """HOSTFS can only buffer 4 KiB on the PSP: small chunks, stop-and-wait per chunk, one frame in flight."""
+    hostfs = a.transport == "hostfs"
+    if a.max_chunk is None:
+        a.max_chunk = HOSTFS_MAX_CHUNK if hostfs else 0
+    if a.chunk_ack is None:
+        a.chunk_ack = hostfs
+    if a.chunk_ack:
+        a.window = 1
+
+
+def connect(a):
+    """Opens the transport and does the HELLO handshake. Returns (link, max_payload)."""
     t = open_any(a.transport, a.usb_wait)
-    recording = a.transport.startswith("record:")
     link = Link(t, app=P.APP_SCREEN, name="mac-screen")
     max_payload = S.SCR_MAX_PAYLOAD
-    if not recording:
-        peer = link.handshake(timeout=a.handshake_timeout)
+    if not a.transport.startswith("record:"):
+        try:
+            peer = link.handshake(timeout=a.handshake_timeout)
+        except Exception:
+            link.close(bye=False)
+            raise
         if peer.app != P.APP_SCREEN:
             print(f"[warn] peer app id {peer.app} (expected {P.APP_SCREEN}: screen); continuing", flush=True)
         max_payload = min(S.SCR_MAX_PAYLOAD, peer.max_payload)
-        print(f"[psp_screen] peer '{peer.name}' max_payload={peer.max_payload} -> chunks <= {max_payload} B",
-              flush=True)
+        print(f"[psp_screen] peer '{peer.name}' max_payload={peer.max_payload}", flush=True)
+    if a.max_chunk:
+        max_payload = min(max_payload, a.max_chunk)
+    return link, max_payload
+
+
+def reconnect(a):
+    deadline = time.monotonic() + a.reconnect
+    while time.monotonic() < deadline:
+        try:
+            return connect(a)
+        except (ConnectionError, TimeoutError, OSError, RuntimeError):
+            time.sleep(1.0)
+    return None
+
+
+def cmd_send(a) -> int:
+    apply_transport_defaults(a)
+    src = make_source(a.source, a.capture)
+    recording = a.transport.startswith("record:")
+    try:
+        link, max_payload = connect(a)
+    except (ConnectionError, TimeoutError) as e:
+        print(f"[psp_screen] cannot connect over '{a.transport}': {e}", flush=True)
+        return 2
     enc = Encoder(lz4=a.lz4, max_payload=max_payload)
     print(f"[psp_screen] source={getattr(src, 'name', a.source)} transport={a.transport} fps={a.fps} "
-          f"window={a.window} lz4={a.lz4}", flush=True)
+          f"window={a.window} lz4={a.lz4} chunks<={max_payload} B chunk_ack={a.chunk_ack}", flush=True)
 
     inflight: dict[int, float] = {}
+    chunk_acks: set[tuple[int, int]] = set()
     force_key = False
     last_key = time.monotonic()
     stats = dict(frames=0, acked=0, wire=0, enc_ms=0.0, dec_us=0, rtt=0.0, skipped=0, keys=0)
@@ -96,6 +137,7 @@ def cmd_send(a) -> int:
     period = 1.0 / a.fps if a.fps > 0 else 0.0
     next_t = time.perf_counter()
     last_frame = None
+    rc = 0
 
     def handle(f):
         nonlocal force_key, last_ack
@@ -112,86 +154,136 @@ def cmd_send(a) -> int:
                 stats["dec_us"] += ack.decode_us
             if ack.flags & S.SCR_ACKF_NEED_KEY:
                 force_key = True
+        elif f.type == S.SCR_T_CHUNK_ACK and len(f.payload) >= S.SCR_CHUNK_ACK_SIZE:
+            chunk_acks.add(S.CHUNK_ACK.unpack_from(f.payload))
         elif f.type == P.T_LOG:
             print("[psp]", f.payload.decode(errors="replace"), flush=True)
 
-    try:
-        while a.frames <= 0 or n < a.frames:
-            if a.duration > 0 and time.monotonic() - t_start > a.duration:
-                break
-            # flow control: at most `window` unacknowledged frames in flight
-            if not recording:
-                while True:
-                    f = link.recv(0)
-                    if f is None:
-                        break
-                    handle(f)
-                wait_start = time.monotonic()
-                while len(inflight) >= a.window:
-                    f = link.recv(0.05)
-                    if f is not None:
-                        handle(f)
-                    if time.monotonic() - wait_start > a.ack_timeout:
-                        print(f"[warn] no ACK for {a.ack_timeout}s; dropping {len(inflight)} in-flight frame(s), "
-                              "sending a keyframe", flush=True)
-                        inflight.clear()
-                        force_key = True
-            frame = src.frame(n)
-            key = force_key or (a.key_interval > 0 and time.monotonic() - last_key >= a.key_interval)
-            chunks = enc.encode(frame, key=key)
-            st = enc.last
-            if st.key:
-                last_key, force_key = time.monotonic(), False
-                stats["keys"] += 1
-            for c in chunks:
+    def send_chunks(chunks, fid) -> bool:
+        """Sends one frame. With chunk_ack: stop-and-wait per chunk (HOSTFS). False = gave up on the frame."""
+        nonlocal force_key
+        for i, c in enumerate(chunks):
+            last = i == len(chunks) - 1
+            if not a.chunk_ack or last:
                 link.send(S.SCR_T_CHUNK, c)
-            if chunks:
-                inflight[st.frame_id] = time.monotonic()
-                stats["frames"] += 1
-                stats["wire"] += st.wire_bytes
-            else:
-                stats["skipped"] += 1
-            stats["enc_ms"] += st.encode_ms
-            last_frame = frame
-            n += 1
-            now = time.monotonic()
-            if now - t_stat >= a.stats_interval:
-                dt = now - t_stat
-                fr, ac = stats["frames"], max(1, stats["acked"])
-                psp = (f" | PSP fps {last_ack.fps_x10 / 10:.1f} dec {stats['dec_us'] / ac / 1000:.2f} ms "
-                       f"rtt {stats['rtt'] / ac * 1000:.1f} ms err {last_ack.decode_errors}") if last_ack else ""
-                print(f"[stats] sent {fr / dt:5.1f} fps acked {stats['acked'] / dt:5.1f} fps "
-                      f"{stats['wire'] / dt / 1e6:6.2f} MB/s {stats['wire'] / max(1, fr) / 1024:6.1f} KiB/frame "
-                      f"enc {stats['enc_ms'] / max(1, fr + stats['skipped']):.2f} ms "
-                      f"unchanged {stats['skipped']} keys {stats['keys']}{psp}", flush=True)
-                stats.update(frames=0, acked=0, wire=0, enc_ms=0.0, dec_us=0, rtt=0.0, skipped=0, keys=0)
-                t_stat = now
-            if period:
-                next_t += period
-                dt = next_t - time.perf_counter()
-                if dt > 0:
-                    time.sleep(dt)
-                else:
-                    next_t = time.perf_counter()
-        # drain the last ACKs so the PSP finished presenting before we say BYE
-        if not recording:
+                continue
+            link.send(S.SCR_T_CHUNK, c, flags=P.F_ACK_REQ)
             deadline = time.monotonic() + a.ack_timeout
-            while inflight and time.monotonic() < deadline:
+            while (fid, i) not in chunk_acks:
                 f = link.recv(0.05)
                 if f is not None:
                     handle(f)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        if a.save_last and last_frame is not None:
-            save_png(last_frame, a.save_last)
-        link.close(bye=not recording)
+                if time.monotonic() > deadline:
+                    print(f"[warn] no CHUNK_ACK for frame {fid} chunk {i}; abandoning the frame", flush=True)
+                    force_key = True
+                    return False
+            chunk_acks.discard((fid, i))
+        return True
+
+    def drain_and_wait():
+        nonlocal force_key
+        while True:
+            f = link.recv(0)
+            if f is None:
+                break
+            handle(f)
+        wait_start = time.monotonic()
+        while len(inflight) >= a.window:
+            f = link.recv(0.05)
+            if f is not None:
+                handle(f)
+            if time.monotonic() - wait_start > a.ack_timeout:
+                print(f"[warn] no ACK for {a.ack_timeout}s; dropping {len(inflight)} in-flight frame(s), "
+                      "sending a keyframe", flush=True)
+                inflight.clear()
+                force_key = True
+
+    while True:
+        try:
+            while a.frames <= 0 or n < a.frames:
+                if a.duration > 0 and time.monotonic() - t_start > a.duration:
+                    break
+                if not recording:
+                    drain_and_wait()  # flow control: at most `window` unacknowledged frames in flight
+                frame = src.frame(n)
+                key = force_key or (a.key_interval > 0 and time.monotonic() - last_key >= a.key_interval)
+                chunks = enc.encode(frame, key=key)
+                st = enc.last
+                if st.key:
+                    last_key, force_key = time.monotonic(), False
+                    stats["keys"] += 1
+                if chunks:
+                    inflight[st.frame_id] = time.monotonic()
+                    if not send_chunks(chunks, st.frame_id):
+                        inflight.pop(st.frame_id, None)
+                    stats["frames"] += 1
+                    stats["wire"] += st.wire_bytes
+                else:
+                    stats["skipped"] += 1
+                stats["enc_ms"] += st.encode_ms
+                last_frame = frame
+                n += 1
+                now = time.monotonic()
+                if now - t_stat >= a.stats_interval:
+                    dt = now - t_stat
+                    fr, ac = stats["frames"], max(1, stats["acked"])
+                    psp = (f" | PSP fps {last_ack.fps_x10 / 10:.1f} dec {stats['dec_us'] / ac / 1000:.2f} ms "
+                           f"rtt {stats['rtt'] / ac * 1000:.1f} ms err {last_ack.decode_errors}") if last_ack else ""
+                    print(f"[stats] sent {fr / dt:5.1f} fps acked {stats['acked'] / dt:5.1f} fps "
+                          f"{stats['wire'] / dt / 1e6:6.2f} MB/s {stats['wire'] / max(1, fr) / 1024:6.1f} KiB/frame "
+                          f"enc {stats['enc_ms'] / max(1, fr + stats['skipped']):.2f} ms "
+                          f"unchanged {stats['skipped']} keys {stats['keys']}{psp}", flush=True)
+                    stats.update(frames=0, acked=0, wire=0, enc_ms=0.0, dec_us=0, rtt=0.0, skipped=0, keys=0)
+                    t_stat = now
+                if period:
+                    next_t += period
+                    dt = next_t - time.perf_counter()
+                    if dt > 0:
+                        time.sleep(dt)
+                    else:
+                        next_t = time.perf_counter()
+            # drain the last ACKs so the PSP finished presenting before we say BYE
+            if not recording:
+                deadline = time.monotonic() + a.ack_timeout
+                while inflight and time.monotonic() < deadline:
+                    f = link.recv(0.05)
+                    if f is not None:
+                        handle(f)
+            link.close(bye=not recording)
+            break
+        except KeyboardInterrupt:
+            link.close(bye=not recording)
+            break
+        except ConnectionError as e:
+            link.close(bye=False)
+            if recording or a.reconnect <= 0:
+                print(f"[psp_screen] link lost: {e}", flush=True)
+                rc = 3
+                break
+            print(f"[psp_screen] link lost ({e}); reconnecting for up to {a.reconnect:.0f} s "
+                  "(restart the PSP app / replug the cable)...", flush=True)
+            r = reconnect(a)
+            if r is None:
+                print("[psp_screen] gave up reconnecting", flush=True)
+                rc = 3
+                break
+            link, max_payload = r
+            enc = Encoder(lz4=a.lz4, max_payload=max_payload)  # fresh encoder -> next frame is a keyframe
+            inflight.clear()
+            chunk_acks.clear()
+            print("[psp_screen] reconnected; sending a keyframe", flush=True)
+    if a.save_last and last_frame is not None:
+        save_png(last_frame, a.save_last)
     print(f"[psp_screen] done: {n} frames", flush=True)
-    return 0
+    return rc
 
 
 # -------------------------------------------------------------------------------------------- probe
 def cmd_probe(a) -> int:
+    if a.transport == "hostfs":
+        print("[probe] HOSTFS buffers only 4 KiB on the PSP and drops overflow, so a bulk probe is meaningless.\n"
+              "        Link check: python tools/usb_probe.py echo --spec hostfs --sizes 512,2048")
+        return 2
     t = open_any(a.transport, a.usb_wait)
     link = Link(t, app=P.APP_SCREEN, name="mac-probe")
     peer = link.handshake(timeout=a.handshake_timeout)
@@ -227,7 +319,9 @@ def cmd_probe(a) -> int:
             continue
         r = S.ProbeResult.unpack(f.payload)
         mac_mbs = len(blob) / (t1 - t0) / 1e6
-        psp_mbs = r.bytes / r.us if r.us else float("nan")
+        # the PSP clock starts when the FIRST probe frame is complete, so its bytes are not in the interval
+        first = payload + P.OVERHEAD
+        psp_mbs = (r.bytes - first) / r.us if r.us else float("nan")
         rows.append((kb, len(blob), mac_mbs, r.bytes, psp_mbs, r.crc_errors))
         print(f"[probe] {kb:4d} KiB transfers: Mac wall {mac_mbs:6.2f} MB/s | PSP saw {r.bytes} B in "
               f"{r.us / 1000:.1f} ms = {psp_mbs:6.2f} MB/s, {r.frames} frames, crc_err {r.crc_errors}")
@@ -296,6 +390,12 @@ def main(argv=None) -> int:
     ap.add_argument("--duration", type=float, default=0.0, help="stop after S seconds")
     ap.add_argument("--stats-interval", type=float, default=1.0)
     ap.add_argument("--save-last", help="write the last source frame (as the PSP should show it) to PNG")
+    ap.add_argument("--max-chunk", type=int, default=None,
+                    help=f"max SCR_CHUNK payload bytes (default 64 KiB; {HOSTFS_MAX_CHUNK} for hostfs)")
+    ap.add_argument("--chunk-ack", action=argparse.BooleanOptionalAction, default=None,
+                    help="stop-and-wait per chunk (default on for hostfs only; forces --window 1)")
+    ap.add_argument("--reconnect", type=float, default=30.0,
+                    help="seconds to keep trying to reconnect after the link drops (0 = exit)")
     # probe
     ap.add_argument("--sizes", default="16,64,256", help="probe: USB transfer sizes in KiB")
     ap.add_argument("--mb", type=float, default=8.0, help="probe: MiB per transfer size")

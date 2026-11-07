@@ -27,6 +27,10 @@
  *   0 u32 frame_id, 4 u32 decode_us, 8 u32 present_us, 12 u32 frames_shown, 16 u32 rx_bytes,
  *   20 u32 buttons, 24 u16 fps_x10, 26 u16 ack_flags, 28 u32 decode_errors
  *
+ * SCR_CHUNK_ACK (PSP -> Mac, 6 bytes: u32 frame_id, u16 chunk_idx): sent for every non-LAST chunk whose
+ * link frame has PSP_LINK_F_ACK_REQ. The Mac uses it for stop-and-wait over HOSTFS, whose PSP-side
+ * buffer is only 4 KiB (psplinkusb usbasync.h MAX_ASYNC_BUFFER) and silently drops overflow.
+ *
  * Throughput probe:
  *   SCR_PROBE_DATA   (Mac -> PSP) any payload, counted and dropped
  *   SCR_PROBE_END    (Mac -> PSP) u32 tag
@@ -53,6 +57,7 @@
 enum {
     SCR_T_CHUNK = 0x40,
     SCR_T_ACK = 0x41,
+    SCR_T_CHUNK_ACK = 0x42,
     SCR_T_PROBE_DATA = 0x50,
     SCR_T_PROBE_END = 0x51,
     SCR_T_PROBE_RESULT = 0x52,
@@ -66,5 +71,6 @@ enum { SCR_CF_KEY = 0x01, SCR_CF_LAST = 0x02 };
 enum { SCR_ACKF_NEED_KEY = 0x0001 };
 #define SCR_ACK_SIZE 32u
 #define SCR_PROBE_RESULT_SIZE 20u
+#define SCR_CHUNK_ACK_SIZE 6u
 
 #endif

@@ -9,8 +9,10 @@ Hardware steps: [`../HARDWARE_TEST.md`](../HARDWARE_TEST.md). Decisions: [`../do
 | PSP EBOOT build (`make -C screen/psp`, USB included) | **verified** (pspdev psp-gcc 15.2) |
 | PSP app in PPSSPP, recorded stream (replay io) | **verified, pixel-exact** (VRAM compared with the source, rows 0..263) |
 | PSP app in PPSSPP, live Mac sender through `tools/ppsspp_bridge.py` | **verified, pixel-exact**. 6–11 fps, bridge-bound (see below) |
-| Mac sender ⇄ `fake_psp` (the PSP's C decoder via ctypes) | **verified, pixel-exact** (34 automated tests + 2 opt-in PPSSPP tests) |
-| Real USB (`--transport usb`, pspmaclink.prx) and HOSTFS fallback | implemented and compiles; **not run** (needs the PSP) |
+| Mac sender ⇄ `fake_psp` (the PSP's C decoder via ctypes) | **verified, pixel-exact** (38 automated tests + 2 opt-in PPSSPP tests) |
+| Real USB (`--transport usb`, pspmaclink.prx) | implemented and compiles; **not run** (needs the PSP) |
+| HOSTFS fallback (`--transport hostfs`) | implemented with ≤3000 B chunks and per-chunk stop-and-wait, because usbhostfs buffers only 4 KiB and drops overflow. Tested against the fake PSP; **very slow by design, not run on hardware** |
+| Sender reconnect after PSP restart / unplug | implemented, tested against the fake PSP (`--reconnect 30`) |
 | Real screen/window capture (ScreenCaptureKit, mss fallback) | implemented; CGImage→565 conversion tested; **capture itself not run** (no Screen Recording permission tonight) |
 | CGVirtualDisplay (DeskPad-style virtual monitor) | not attempted (stretch) |
 
@@ -38,7 +40,7 @@ tools/fake_psp_screen.py     fake_psp plugin: the PSP's C decoder through ctypes
 source tools/env.sh                              # pspdev + venv on PATH
 make -C screen/psp                               # EBOOT.PBP + pspmaclink.prx + usbhostfs.prx (USB=0: emulator-only)
 make -C screen/codec                             # C decoder tests + libscrcodec.dylib
-python -m pytest -q screen/tests                 # 34 tests (+2 PPSSPP tests with RUN_PPSSPP=1)
+python -m pytest -q screen/tests                 # 38 tests (+2 PPSSPP tests with RUN_PPSSPP=1)
 python screen/tests/ppsspp_e2e.py --mode replay  # real EBOOT in PPSSPP, pixel-exact check
 python screen/tests/ppsspp_e2e.py --mode mailbox --source test-pattern --frames 40
 python screen/mac/psp_screen.py bench --frames 120 --verify
@@ -53,7 +55,7 @@ python screen/mac/psp_screen.py --transport usb --source screen:0,0 --fps 30    
 python screen/mac/psp_screen.py probe --transport usb --sizes 16,64,256 --mb 8
 ```
 
-Sender options: `--fps` (0 = as fast as possible), `--window N` (frames in flight, default 2), `--lz4 off|on|auto`, `--key-interval S`, `--frames N` / `--duration S`, `--save-last PNG`, `--capture auto|sck|mss`. On the PSP, SELECT toggles the stats line and HOME exits.
+Sender options: `--fps` (0 = as fast as possible), `--window N` (frames in flight, default 2), `--lz4 off|on|auto` (`on` still falls back to raw when LZ4 does not shrink a chunk, so payloads never exceed 64 KiB), `--max-chunk B` / `--chunk-ack` (automatic for hostfs), `--reconnect S`, `--key-interval S`, `--frames N` / `--duration S`, `--save-last PNG`, `--capture auto|sck|mss`. On the PSP, SELECT toggles the stats line and HOME exits.
 
 ## Wire format (inside `psp_link` frames)
 
@@ -65,9 +67,9 @@ Probe: `PROBE_DATA 0x50`, `PROBE_END 0x51`, `PROBE_RESULT 0x52`, `PROBE_RESET 0x
 
 ## Codec benchmark (measured on this MacBook, Apple Silicon)
 
-`python screen/mac/psp_screen.py bench --frames 120 --verify` (every frame decoded by the C decoder and checked pixel-exact). Bytes include the 12-byte link framing. "Link-only fps" ignores PSP CPU time (see the verdict).
+`python screen/mac/psp_screen.py bench --frames 120 --verify` (every frame decoded by the C decoder and checked pixel-exact). Bytes include the 12-byte link framing. The last two columns are **computed, not measured**: min(60, link rate ÷ bytes/frame), ignoring PSP CPU time (see the verdict).
 
-| source | lz4 | frames | avg KiB/frame | max KiB/frame | key KiB | avg dirty tiles | avg encode ms | C decode ms (Mac) | link-only fps @8 MB/s | @16 MB/s |
+| source | lz4 | frames | avg KiB/frame | max KiB/frame | key KiB | avg dirty tiles | avg encode ms | C decode ms (Mac) | computed link-only fps @8 MB/s | computed @16 MB/s |
 |---|---|---|---|---|---|---|---|---|---|---|
 | test-pattern | off | 119 | 7.3 | 9.1 | 111.6 | 16 | 0.09 | 0.005 | 60 | 60 |
 | test-pattern | auto | 119 | 1.1 | 1.3 | 9.6 | 16 | 0.11 | 0.013 | 60 | 60 |
@@ -98,7 +100,10 @@ That is the WebSocket-debugger bridge limit (main measured ~280 KiB/s, ~200 ms R
 
 Throughput prior art (all from `docs/research/second-screen.md`, not measured by us):
 - psp-uvc measured ~16 MB/s PSP→host.
-- psp-cast claims ~15.7 MB/s on an E-1000.
+- psp-cast (README, tested on an E-1000 with PRO/LME) makes two separate claims:
+  - "~16 MB/s" is the PSP's practical USB limit;
+  - its 60 fps 16-bit full-frame mode needs ~15.7 MB/s.
+  Both are claimed, not independently measured, and both are PSP→host.
 - oasis-os claims 28 MB/s host→PSP (UNVERIFIED).
 - pspdisp-linux reports 57–60 fps host→PSP with JPEG.
 - We plan with **8 MB/s (conservative)** and **16 MB/s (measured class)**. The real number comes from `psp_screen.py probe` in the morning.
