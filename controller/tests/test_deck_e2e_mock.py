@@ -38,7 +38,8 @@ def test_demo_scenario_end_to_end(tmp_path):
 
     # the PSP got the wheel labels from deck.toml and a result for the slice it fired
     assert rep["labels"] == ["Mission Ctrl", "Play/Pause", "Screenshot", "Next track", "Cmd+Tab", "Downloads"]
-    assert rep["results"] == [{"slice": 2, "ok": True, "text": "Screenshot: dry-run: key"}]
+    assert len(rep["results"]) == 1 and rep["results"][0]["slice"] == 2 and rep["results"][0]["ok"]
+    assert rep["results"][0]["text"].startswith("Screenshot: dry-run: would run screencap")
     assert rep["status"]["dry_run"] is True
 
     # mouse moved right, then dragged up while L was held
@@ -49,8 +50,8 @@ def test_demo_scenario_end_to_end(tmp_path):
     assert ("key", "return", True) in kinds and ("key", "return", False) in kinds
     assert any(e["ev"] == "key" and e["key"] == "up" and e["repeat"] for e in evs)
     assert any(e["ev"] == "scroll" and e["dy"] < 0 for e in evs)
-    shot = [e for e in evs if e["ev"] == "key" and e["key"] == "cmd+shift+3"]
-    assert [e["down"] for e in shot] == [True, False] and shot[0]["keycode"] == 0x14
+    shot = [e for e in evs if e["ev"] == "shell"]
+    assert len(shot) == 1 and shot[0]["cmd"].startswith("screencapture -x ~/Desktop/psp-")
     # every press was released
     assert kinds.count(("mouse_button", "left", True)) == kinds.count(("mouse_button", "left", False))
 

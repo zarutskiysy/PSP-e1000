@@ -16,6 +16,8 @@ from .backend import Backend
 from .config import Config
 from .mapper import Event, Mapper
 
+MAX_PAYLOAD = 4096  # largest frame the deck accepts; our biggest is 196 B (main's parser resyncs on oversize)
+
 HELLO_EVERY = 1.0
 PING_EVERY = 1.0
 STALE_INPUT_S = 0.5  # no INPUT_STATE for this long -> release held buttons/keys
@@ -27,6 +29,7 @@ class Stats:
     fires: int = 0
     events: int = 0
     errors: int = 0
+    bad_frames: int = 0
     rtts_ms: list[float] = field(default_factory=list)
     input_hz_windows: list[float] = field(default_factory=list)
     psp_rtt_us: int = 0
@@ -39,6 +42,7 @@ class Stats:
         hz = self.input_hz_windows[1:] or self.input_hz_windows  # first window is partial
         return {
             "inputs": self.inputs, "wheel_fires": self.fires, "events": self.events, "errors": self.errors,
+            "bad_frames": self.bad_frames,
             "rtt_ms_min": round(r[0], 3) if r else None,
             "rtt_ms_median": round(statistics.median(r), 3) if r else None,
             "rtt_ms_p95": round(r[min(len(r) - 1, int(0.95 * len(r)))], 3) if r else None,
@@ -139,37 +143,16 @@ class Deck:
                 f = link.recv(0.005)
                 if f is None:
                     continue
-                if f.type in (P.T_HELLO, P.T_HELLO_ACK):
-                    peer = link.peer
-                    self.stats.peer_name = peer.name if peer else ""
-                    if peer and peer.app != C.APP_ID:
-                        self.log(f"warning: peer app id {peer.app} != {C.APP_ID} (not the deck app?)")
-                    if not configured:
-                        self.log(f"connected to {self.stats.peer_name or 'PSP'}; sending {len(self.cfg.wheel)} wheel labels")
-                    configured = True
-                    self.send_config(link)
-                elif f.type == C.T_CONFIG_REQ:
-                    configured = True
-                    self.send_config(link)
-                elif f.type == C.T_INPUT_STATE:
-                    st = C.InputState.unpack(f.payload)
-                    self.stats.inputs += 1
-                    win_inputs += 1
-                    last_input = now
-                    held = st.buttons != 0
-                    self._post(self.mapper.on_input(st))
-                elif f.type == C.T_WHEEL_FIRE:
-                    self.fire(link, C.WheelFire.unpack(f.payload).slice)
-                elif f.type == P.T_PONG and len(f.payload) == 8:
-                    (pid,) = struct.unpack("<Q", f.payload)
-                    t = pings.pop(pid, None)
-                    if t is not None:
-                        self.stats.rtts_ms.append((time.perf_counter() - t) * 1000)
-                elif f.type == P.T_LOG:
-                    self.log("PSP:", f.payload.decode(errors="replace"))
-                elif f.type == P.T_BYE:
+                if f.type == P.T_BYE:
                     reason = "bye"
                     break
+                try:
+                    configured, held, last_input, win_inputs = self._dispatch(
+                        link, f, now, configured, held, last_input, win_inputs, pings)
+                except (ValueError, struct.error, IndexError) as e:
+                    # a CRC-valid but malformed frame (wrong length) must not kill the session
+                    self.stats.bad_frames += 1
+                    self.log(f"dropped malformed {C.TYPE_NAMES.get(f.type, f.name)} frame (len {len(f.payload)}): {e}")
         except ConnectionError as e:
             reason = f"disconnected: {e}"
         finally:
@@ -178,6 +161,38 @@ class Deck:
             except Exception:
                 pass
         return reason
+
+    def _dispatch(self, link, f, now, configured, held, last_input, win_inputs, pings):
+        """Handle one frame; returns the updated session state. Raises on malformed payloads."""
+        if f.type in (P.T_HELLO, P.T_HELLO_ACK):
+            peer = link.peer
+            self.stats.peer_name = peer.name if peer else ""
+            if peer and peer.app != C.APP_ID:
+                self.log(f"warning: peer app id {peer.app} != {C.APP_ID} (not the deck app?)")
+            if not configured:
+                self.log(f"connected to {self.stats.peer_name or 'PSP'}; sending {len(self.cfg.wheel)} wheel labels")
+            configured = True
+            self.send_config(link)
+        elif f.type == C.T_CONFIG_REQ:
+            configured = True
+            self.send_config(link)
+        elif f.type == C.T_INPUT_STATE:
+            st = C.InputState.unpack(f.payload)
+            self.stats.inputs += 1
+            win_inputs += 1
+            last_input = now
+            held = st.buttons != 0
+            self._post(self.mapper.on_input(st))
+        elif f.type == C.T_WHEEL_FIRE:
+            self.fire(link, C.WheelFire.unpack(f.payload).slice)
+        elif f.type == P.T_PONG and len(f.payload) == 8:
+            (pid,) = struct.unpack("<Q", f.payload)
+            t = pings.pop(pid, None)
+            if t is not None:
+                self.stats.rtts_ms.append((time.perf_counter() - t) * 1000)
+        elif f.type == P.T_LOG:
+            self.log("PSP:", f.payload.decode(errors="replace"))
+        return configured, held, last_input, win_inputs
 
 
 def write_summary(path: str, stats: Stats) -> None:

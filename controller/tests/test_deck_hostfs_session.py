@@ -7,6 +7,8 @@ import subprocess
 import sys
 import time
 
+import pytest
+
 from pspmac import protocol as P
 from pspmac.link import Link
 from pspmac.transport import TcpServerTransport
@@ -57,3 +59,44 @@ def test_late_psp_and_psp_restart(tmp_path):
         d.wait(20)
         srv.close()
     assert "session ended: bye" in d.stderr.read()
+
+
+def test_malformed_frames_do_not_kill_the_daemon(tmp_path):
+    """CRC-valid frames with wrong payload sizes for every PSP->Mac type: logged, counted, skipped."""
+    import json
+
+    srv = TcpServerTransport("127.0.0.1", 0)
+    summary = tmp_path / "s.json"
+    d = subprocess.Popen([sys.executable, str(ROOT / "controller/mac/psp_deck.py"), "-t", f"tcp:127.0.0.1:{srv.port}",
+                          "--dry-run", "--duration", "10", "--once", "--summary", str(summary)],
+                         stderr=subprocess.PIPE, text=True)
+    try:
+        srv.accept(timeout=10)
+        psp = Link(srv, role=P.ROLE_PSP, app=C.APP_ID, name="psp_deck")
+        psp.send(P.T_HELLO, psp.hello_payload())
+        assert psp.wait_for(C.T_WHEEL_CONFIG, 5) is not None
+        bad = [(C.T_INPUT_STATE, b"\x01\x02\x03"), (C.T_INPUT_STATE, b""), (C.T_WHEEL_FIRE, b""),
+               (C.T_WHEEL_FIRE, b"\x02\x00\x00"), (P.T_HELLO, b"\x01"), (P.T_HELLO_ACK, b""),
+               (P.T_PONG, b"\x00" * 3), (C.T_CONFIG_REQ, b"junk"), (P.T_LOG, b"\xff\xfe")]
+        for t, payload in bad:
+            psp.send(t, payload)
+        # still alive: a good frame afterwards is processed and the session ends cleanly on BYE
+        psp.send(C.T_WHEEL_FIRE, C.WheelFire(0).pack())
+        res = psp.wait_for(C.T_ACTION_RESULT, 5)
+        assert res is not None and C.ActionResult.unpack(res.payload).ok
+        psp.send(P.T_BYE)
+    finally:
+        d.wait(20)
+        srv.close()
+    err = d.stderr.read()
+    assert d.returncode == 0, err
+    assert "dropped malformed INPUT_STATE" in err and "dropped malformed WHEEL_FIRE" in err
+    s = json.loads(summary.read_text())
+    assert s["bad_frames"] == 4 and s["wheel_fires"] == 1
+
+
+@pytest.mark.parametrize("spec", ["foo", "tcp:abc", "tcp:host:notaport", "usb"])
+def test_bad_transport_spec_exits_2(spec):
+    r = subprocess.run([sys.executable, str(ROOT / "controller/mac/psp_deck.py"), "-t", spec, "--dry-run"],
+                       capture_output=True, text=True, timeout=10)
+    assert r.returncode == 2 and "bad --transport" in r.stderr and "Traceback" not in r.stderr

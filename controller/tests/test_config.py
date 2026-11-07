@@ -11,6 +11,7 @@ def test_default_config_loads():
     assert 1 <= len(cfg.wheel) <= 8
     kinds = {w.action.kind for w in cfg.wheel}
     assert {"mission_control", "media", "key", "shell"} <= kinds
+    assert cfg.wheel[2].action.arg.startswith("screencapture -x")
 
 
 @pytest.mark.parametrize("spec,kind,code,mods", [

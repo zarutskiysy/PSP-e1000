@@ -8,7 +8,7 @@ This turns the PSP E1000 into a Mac control deck over USB:
 - **△** + nub scrolls
 - **START** is play/pause
 - hold **SELECT** to open a radial **action wheel**: aim with the nub, release to fire a macro such as
-  Mission Control, play/pause, Cmd+Shift+3 screenshot or a shell command
+  Mission Control, play/pause, a screenshot (`screencapture`) or a shell command
 
 The bindings and wheel macros live in `controller/mac/deck.toml`. The Mac sends the wheel labels to
 the PSP when they connect.
@@ -47,7 +47,7 @@ source tools/env.sh
 PY=/Users/semyon/pet_projects/psp_e1000/.venv/bin/python
 
 make -C controller/psp                      # EBOOT.PBP + usbhostfs.prx + pspmaclink.prx (USB=0: emulator-only)
-$PY -m pytest controller/tests -q           # 68 tests, ~25 s (the PPSSPP test is skipped if PPSSPP/pspdev are missing)
+$PY -m pytest controller/tests -q           # 73 tests, ~30 s (the PPSSPP test is skipped if PPSSPP/pspdev are missing)
 
 # mock PSP (scripted run), daemon in dry-run printing the events it would post
 $PY tools/fake_psp.py --plugin tools/fake_psp_controller.py --once -- --scenario demo &
@@ -85,6 +85,10 @@ Daemon flags:
 | 0x13 ACTION_RESULT | Mac→PSP | u8 slice, u8 ok, u16 0, char[48] (52 B) | after running the macro |
 | 0x14 CONFIG_REQ | PSP→Mac | empty | every 1 s until the PSP has labels |
 | 0x15 MAC_STATUS | Mac→PSP | u32 rtt_us, u32 events, u16 input_hz, u8 dry_run, u8 ax_trusted, u32 0 (16 B) | every 1 s |
+
+The PSP falls back to `NO MAC` after 3 s without any frame from the Mac, then resumes HELLO + CONFIG_REQ.
+The daemon caps incoming payloads at 4 KiB. A CRC-valid frame with the wrong payload size is logged,
+counted (`bad_frames` in the summary) and skipped.
 
 Common PING/PONG measures RTT in both directions. The Mac pings every 1 s, and so does the PSP, with an 8-byte "DPKG" + t_us payload.
 
@@ -134,6 +138,10 @@ These figures fit a cursor-and-macro deck. They are not good enough for competit
 - real CGEvent posting on screen (needs Accessibility, and nobody was at the Mac)
 - media keys on macOS 26
 - `open -a "Mission Control"`
+- system hotkeys via synthetic key events, e.g. `key:cmd+shift+3`. The modifier flags are only set on the
+  '3' key event, with no separate Cmd/Shift key-downs, so whether the hotkey fires is unknown. The Screenshot
+  slice therefore defaults to `shell:screencapture -x …`
+- the PSP "Mac silent → NO MAC" fallback over real USB. It was checked in PPSSPP by killing the daemon
 
 ## Future option: class-compliant USB HID
 

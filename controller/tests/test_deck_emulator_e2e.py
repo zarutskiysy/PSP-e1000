@@ -88,7 +88,7 @@ def test_psp_app_drives_mac_daemon(deck):
     time.sleep(2.5)
     emu.buttons(select=False)
     emu.analog(0, 0)
-    assert wait_for(lambda: any(e["ev"] == "key" and e["key"] == "cmd+shift+3" for e in read_events(events)), 20)
+    assert wait_for(lambda: any(e["ev"] == "shell" and e["cmd"].startswith("screencapture") for e in read_events(events)), 20)
     d.terminate()
     d.wait(15)
     s = json.loads(summary.read_text())

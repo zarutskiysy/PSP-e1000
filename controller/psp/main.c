@@ -162,6 +162,7 @@ static unsigned psp_rtt_us, mac_rtt_us, mac_events, mac_input_hz;
 static int mac_dry, mac_ax, link_errors, peer_seen, have_status;
 static unsigned tx_inputs;
 
+#define MAC_SILENCE_US 3000000u
 #define PING_MAGIC 0x474B5044u /* "DPKG" */
 
 static void handle_frame(const psp_link_frame_t *f) {
@@ -228,7 +229,7 @@ static void draw_button(int col, int row, const char *name, int on) {
 int main(void) {
     SceUID th = sceKernelCreateThread("cb", cb_thread, 0x11, 0xFA0, 0, 0);
     SceCtrlData pad;
-    unsigned frame = 0, last_hello = 0, last_ping = 0, fps_t0 = 0, fps_frames = 0, fps = 0;
+    unsigned frame = 0, last_hello = 0, last_ping = 0, last_mac_rx = 0, fps_t0 = 0, fps_frames = 0, fps = 0;
     int wheel_open = 0, hover = CTRL_NO_SLICE;
     char line[96];
 
@@ -264,8 +265,19 @@ int main(void) {
         ready = deck_io_ready(&dio);
 
         /* incoming */
-        while ((r = psp_link_poll(&link, 0, &f)) == 1) handle_frame(&f);
+        while ((r = psp_link_poll(&link, 0, &f)) == 1) {
+            handle_frame(&f);
+            last_mac_rx = now;
+        }
         if (r < 0) link_errors++;
+        /* The Mac sends MAC_STATUS + PING every second: silence = daemon gone / cable out. Drop back
+         * to "NO MAC" and resume HELLO + CONFIG_REQ so a restarted daemon gets re-configured. */
+        if (have_config && now - last_mac_rx > MAC_SILENCE_US) {
+            have_config = 0;
+            have_status = 0;
+            snprintf(last_msg, sizeof last_msg, "Mac silent for 3 s: link lost");
+            last_msg_color = C_ERR;
+        }
 
         /* wheel state machine: hold SELECT to open, release to fire the hovered slice */
         if (pad.Buttons & PSP_CTRL_SELECT) {

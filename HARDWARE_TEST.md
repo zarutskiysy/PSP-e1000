@@ -1,15 +1,22 @@
-# HARDWARE_TEST — PSP control deck (feat/mac-controller), ≈15 min
+# HARDWARE_TEST — PSP control deck (feat/mac-controller), ≈15 min after main's USB smoke test (≈10 min)
 
 **CFW assumption:** PSP E1000 on 6.60/6.61 with PRO-C, LME or ARK-4 (kernel PRXs loadable from a user EBOOT).
 The exact CFW was unknown when this was written (2026-11-07). **Nothing below has run on a real PSP yet.**
 Every "expected" line is a prediction. Write down what actually happens.
 
+Every command below uses `$PY`. Define it once per terminal tab:
+
+```bash
+PY=/Users/semyon/pet_projects/psp_e1000/.venv/bin/python
+```
+
 Only USB is used (the E1000 has no Wi-Fi). Data path: PSP app → `usbhostfs.prx` async channel 4 → USB →
 `usbhostfs_pc` on the Mac → TCP `127.0.0.1:10004` → `psp_deck.py` → CGEvents.
 
-## 0. USB smoke test first (≈5 min, once)
+## 0. USB smoke test first (≈10 min, once, not counted in the 15 min)
 
-Run `docs/HARDWARE_TEST.md` from main, **section 2 (HOSTFS mode)** only. That uses the echo app with
+Run `docs/HARDWARE_TEST.md` from main, **sections 0–2** (build and copy the echo app, then HOSTFS mode).
+You can skip its section 3 (MACLINK). That uses the echo app with
 `tools/usb_probe.py echo --spec hostfs`. If that fails, stop and use its troubleshooting table. The deck uses
 exactly the same USB path, so the deck can't work while echo doesn't.
 
@@ -20,13 +27,9 @@ cd ~/pet_projects/psp_e1000/.worktrees/mac-controller    # or a clone of branch 
 source tools/env.sh
 make -C controller/psp clean && make -C controller/psp
 ls -l controller/psp/{EBOOT.PBP,usbhostfs.prx,pspmaclink.prx}
-.venv/bin/python -m pip install -r requirements.txt        # pyobjc for real events (main venv: already there)
-python controller/mac/psp_deck.py --check-config           # validates controller/mac/deck.toml
+$PY -m pip install -r requirements.txt              # pyobjc for real events (main venv: already there)
+$PY controller/mac/psp_deck.py --check-config       # validates controller/mac/deck.toml
 ```
-
-`.venv` means `/Users/semyon/pet_projects/psp_e1000/.venv`. From the worktree, run
-`/Users/semyon/pet_projects/psp_e1000/.venv/bin/python` (`tools/env.sh` only adds a `.venv` that is inside
-the checkout).
 
 ## 2. Copy to the PSP (2 min)
 
@@ -46,8 +49,9 @@ Exit USB Connection mode on the PSP and leave the cable plugged in.
 # tab 1: USB <-> TCP bridge from the pspdev toolchain (needs Homebrew libusb, already installed)
 ~/pspdev/bin/usbhostfs_pc -v
 # tab 2: first a dry run (logs events, needs no permissions)
+PY=/Users/semyon/pet_projects/psp_e1000/.venv/bin/python
 cd ~/pet_projects/psp_e1000/.worktrees/mac-controller
-/Users/semyon/pet_projects/psp_e1000/.venv/bin/python controller/mac/psp_deck.py --transport hostfs --dry-run --events-log - --no-moves
+$PY controller/mac/psp_deck.py --transport hostfs --dry-run --events-log - --no-moves
 ```
 
 Expected tab 2: `waiting for hostfs …` lines until `usbhostfs_pc` is up, then `transport hostfs open`.
@@ -75,14 +79,14 @@ troubleshooting table below and the one in main's `docs/HARDWARE_TEST.md`.
 | **START** | `media playpause` |
 | hold **△** + nub | `scroll` lines (cursor does not move) |
 | nub | (hidden by `--no-moves`) drop that flag to see `mouse_move dx/dy` |
-| hold **SELECT**, push nub toward "Screenshot", release | `key cmd+shift+3` ×2; PSP bottom line: `OK Screenshot: dry-run: key` |
+| hold **SELECT**, push nub toward "Screenshot" (4 o'clock), release | `shell screencapture -x ~/Desktop/psp-….png`; PSP bottom line: `OK Screenshot: dry-run: would run screencapture …` |
 
 ## 6. Real events + Accessibility (3 min)
 
 Ctrl+C in tab 2, then:
 
 ```bash
-/Users/semyon/pet_projects/psp_e1000/.venv/bin/python controller/mac/psp_deck.py --transport hostfs
+$PY controller/mac/psp_deck.py --transport hostfs
 ```
 
 The first time, macOS asks for Accessibility for the terminal app (Terminal/iTerm/Cursor), and the daemon
@@ -93,7 +97,9 @@ needed is UNVERIFIED.
 
 Expected:
 - the nub moves the cursor (slow near the centre, fast at full tilt); **L** clicks, and holding **L** while moving drags a window
-- **SELECT** wheel → Mission Control opens; Play/Pause toggles Music; Screenshot puts a PNG on the Desktop
+- **SELECT** wheel → Mission Control opens; Play/Pause toggles Music; Screenshot puts `psp-<time>.png` on the
+  Desktop. The first time, macOS may ask for Screen Recording permission for the terminal app, because
+  `screencapture` runs from it.
 - the PSP shows `LIVE` (not `no-AX!`)
 
 ## 7. Latency / rate measurement (2 min)
@@ -121,13 +127,14 @@ Optional: hold a key repeat and watch for missing JSON lines. Optional: watch fo
 |---|---|---|
 | PSP top bar `io:demo`, note `USB failed 8002…: load …usbhostfs.prx` | PRXs not next to EBOOT, or CFW not active | Re-copy all three files into the same folder. Re-run the CFW launcher (PRO/ARK fast-recovery) and start the app again. |
 | `io:usb-hostfs USB waiting for host` forever | `usbhostfs_pc` not running / not seeing the PSP | Restart `usbhostfs_pc -v`, replug cable; `usbhostfs_pc -p 0x1c9 -vv`; check cable is data-capable (step 0 passed?) |
-| `USB connected` but `NO MAC` | daemon not connected to 10004 | Tab 2 must say `transport hostfs open`. Is only one client on 10004? Close other tools that use port 10004 (`pspsh` does not, `usb_probe` does) |
+| `USB connected` but `NO MAC` (also shown 3 s after the daemon stops; bottom line `Mac silent for 3 s`) | daemon not connected to 10004 | Tab 2 must say `transport hostfs open`. Is only one client on 10004? Close other tools that use port 10004 (`pspsh` does not, `usb_probe` does) |
 | `MAC LINKED` but no JSON lines when pressing | daemon stuck / wrong transport | Ctrl+C and restart the daemon; the PSP re-handshakes automatically |
 | Real mode: daemon logs events but the cursor doesn't move | Accessibility not granted to *this* terminal app | Step 6. The PSP shows `no-AX!`. Remove the app from the Accessibility list and add it again. |
 | Cursor drifts at rest | nub not centred on this unit | raise `[mouse] deadzone` in `controller/mac/deck.toml` (0.15 → 0.25) |
 | Cursor too slow/fast | taste | `max_speed`, `exponent` in `deck.toml` |
 | Wheel fires the wrong slice | labels/slice order | slice 0 is 12 o'clock and slices go clockwise in `[[wheel]]` order |
 | Media key does nothing | no player running / macOS routes it elsewhere | open Music first; the NSEvent recipe is from a 2012 gist (research fact #24) and isn't tested on macOS 26 |
+| Screenshot slice: OK but no file on the Desktop | Screen Recording permission missing for the terminal | System Settings → Privacy & Security → Screen Recording → enable the terminal app; or change the slice to `action = "key:cmd+shift+3"` (hotkey path, unverified) |
 | Mission Control slice: `error: …` on PSP | `open -a "Mission Control"` failed | change the slice to `action = "key:ctrl+up"` |
 | PSP freezes | kernel PRX bug | hold POWER 10 s; note what you did; report it |
 

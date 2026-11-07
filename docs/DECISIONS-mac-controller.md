@@ -23,3 +23,7 @@
 | 19 | pyobjc 13.0 (Quartz, Cocoa, ApplicationServices, core) was installed into the shared main venv and pinned in `requirements.txt`. | Needed for the CGEvent backend and for `AXIsProcessTrusted`. |
 | 20 | Test files are named `test_deck_*` where they would clash with main's (`test_emulator_e2e.py`). | pytest rootless module-name clash when running `common/python/tests` and `controller/tests` together. |
 | 21 | The emulator e2e test uses this track's PPSSPP port 45671. | Assigned by the orchestrator; other builders use 45672/45673. |
+| 22 | Review round 1: malformed frames are dropped per frame (`ValueError`/`struct.error`), counted in `bad_frames`, and the session continues. Incoming payloads are capped at 4 KiB. | One bad frame must not kill the daemon. Main's parser resyncs on oversize. |
+| 23 | `--transport` only accepts `hostfs`, `mock` and `tcp:HOST:PORT`; anything else exits 2 with a message. `usb` (MACLINK) was dropped. | The deck PSP app only ever starts HOSTFS. One USB mode means less to test on hardware. |
+| 24 | PSP drops `MAC LINKED` after 3 s with no frame from the Mac, then resumes HELLO + CONFIG_REQ. | The Mac sends MAC_STATUS + PING every 1 s; after a daemon restart or cable pull the PSP must re-handshake and show the truth. |
+| 25 | Screenshot slice = `shell:screencapture -x ~/Desktop/psp-$(date +%s).png`. `key:cmd+shift+3` is a documented alternative. | Synthetic system hotkeys with flags only on the key event are unverified. `screencapture` is a plain CLI (it may need Screen Recording permission for the terminal). |

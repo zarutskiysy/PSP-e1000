@@ -45,7 +45,9 @@ action = "media:playpause"
 
 [[wheel]]
 label = "Screenshot"
-action = "key:cmd+shift+3"
+# screencapture is the reliable path; "key:cmd+shift+3" also works in principle (system hotkey via a
+# synthetic key event, UNVERIFIED on macOS 26)
+action = "shell:screencapture -x ~/Desktop/psp-$(date +%s).png"
 
 [[wheel]]
 label = "Next track"

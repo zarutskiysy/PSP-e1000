@@ -18,7 +18,8 @@ from ppsspp import Ppsspp  # noqa: E402
 ap = argparse.ArgumentParser()
 ap.add_argument("--port", type=int, default=45671)
 ap.add_argument("--out", default=str(ROOT / "docs" / "img"))
-ap.add_argument("--slice-xy", default="0.87,0.5", help="analog x,y (+y = up) that points at a slice")
+ap.add_argument("--slice-xy", default="0.87,-0.5",
+                help="analog x,y (+y = up) that points at a slice; default = slice 2 (4 o'clock, Screenshot)")
 a = ap.parse_args()
 out = pathlib.Path(a.out)
 out.mkdir(parents=True, exist_ok=True)

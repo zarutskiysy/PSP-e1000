@@ -30,11 +30,25 @@ from pspmac.transport import open_transport  # noqa: E402
 
 from deck import config as cfgmod  # noqa: E402
 from deck.backend import AX_HELP, DryRunBackend, QuartzBackend, accessibility_trusted  # noqa: E402
-from deck.daemon import Deck, write_summary  # noqa: E402
+from deck.daemon import MAX_PAYLOAD, Deck, write_summary  # noqa: E402
 
 
 def log(*a):
     print("[psp_deck]", *a, file=sys.stderr, flush=True)
+
+
+def check_spec(spec: str) -> str | None:
+    """The deck speaks HOSTFS (real PSP), mock or plain TCP; the PSP app never starts MACLINK."""
+    if spec in ("hostfs", "mock"):
+        return None
+    if spec.startswith("tcp:"):
+        parts = spec.split(":")
+        if len(parts) != 3 or not parts[1] or not parts[2].isdigit() or not 0 < int(parts[2]) < 65536:
+            return "expected tcp:HOST:PORT"
+        return None
+    if spec.startswith("usb"):
+        return "the deck PSP app only starts USB in HOSTFS mode: use --transport hostfs (with usbhostfs_pc)"
+    return "expected hostfs | mock | tcp:HOST:PORT"
 
 
 def _on_sigterm(*_):
@@ -44,7 +58,7 @@ def _on_sigterm(*_):
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--transport", "-t", default="hostfs",
-                    help="hostfs (real PSP via usbhostfs_pc, default) | mock | tcp:HOST:PORT | usb")
+                    help="hostfs (real PSP via usbhostfs_pc, default) | mock | tcp:HOST:PORT")
     ap.add_argument("--config", "-c", default=str(cfgmod.DEFAULT_PATH), help="deck.toml path")
     ap.add_argument("--dry-run", action="store_true", help="log events instead of posting them")
     ap.add_argument("--events-log", help="dry-run: write events as JSON lines here ('-' = stdout)")
@@ -59,6 +73,10 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     signal.signal(signal.SIGTERM, _on_sigterm)  # so `kill` still writes the summary
 
+    err = check_spec(a.transport)
+    if err:
+        log(f"bad --transport {a.transport!r}: {err}")
+        return 2
     try:
         cfg = cfgmod.load(a.config)
     except (cfgmod.ConfigError, OSError) as e:
@@ -99,8 +117,7 @@ def main(argv=None) -> int:
             if remaining is not None and remaining <= 0:
                 break
             try:
-                kw = {} if a.transport.startswith("usb") else {"connect_timeout": 2.0}
-                tr = open_transport(a.transport, **kw)
+                tr = open_transport(a.transport, connect_timeout=2.0)
             except ConnectionError as e:
                 if a.once:
                     log(f"cannot connect: {e}")
@@ -110,7 +127,7 @@ def main(argv=None) -> int:
                 time.sleep(1.0)
                 continue
             log(f"transport {a.transport} open")
-            link = Link(tr, role=P.ROLE_MAC, app=P.APP_CONTROLLER, name="psp_deck")
+            link = Link(tr, role=P.ROLE_MAC, app=P.APP_CONTROLLER, name="psp_deck", max_payload=MAX_PAYLOAD)
             reason = deck.run_session(link, remaining)
             log(f"session ended: {reason}")
             link.close(bye=reason == "duration")
