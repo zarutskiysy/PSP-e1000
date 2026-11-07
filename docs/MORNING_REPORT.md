@@ -28,7 +28,8 @@ and on `main` a parser stall on a bogus length and a bridge replay after an app 
    `ms0:/PSP/GAME/PSPE1000_ECHO/`, run it in HOSTFS (✕) and MACLINK (○) modes, paste the `RESULT …` lines below.
    This one test answers the three biggest unknowns: does your CFW load our kernel PRXs from a user EBOOT,
    does macOS libusb see the PSP, and what is the real MB/s.
-3. Then whichever track you like: `git switch feat/<track>` (or use `.worktrees/<track>`), follow its `HARDWARE_TEST.md`.
+3. Then whichever track you like: `cd .worktrees/<track> && git pull` (the branches are checked out there, so
+   `git switch` in the main checkout would refuse), follow its `HARDWARE_TEST.md`.
    - controller: grant **Accessibility** to your terminal app when the daemon asks (first run without `--dry-run`).
    - second screen: grant **Screen Recording** for real capture (test patterns work without it).
 4. Tell me the CFW (VSH menu / version string). Everything assumes 6.60/6.61 + PRO-C, LME or ARK-4.
