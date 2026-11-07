@@ -117,18 +117,17 @@ class Parser:
             if len(self.buf) < HEADER_SIZE:
                 return out
             _, t, fl, seq, ln = HEADER.unpack_from(self.buf)
+            if ln > self.max_payload:
+                # too big or corrupt length: drop the header and resync (same as the C parser)
+                self.oversize_frames += 1
+                del self.buf[:HEADER_SIZE]
+                continue
             total = HEADER_SIZE + ln + CRC_SIZE
             if len(self.buf) < total:
-                if ln > self.max_payload and len(self.buf) >= HEADER_SIZE:
-                    # wait for the whole oversize frame to skip it, like the C parser does
-                    pass
                 return out
             body = bytes(self.buf[: HEADER_SIZE + ln])
             (got,) = struct.unpack_from("<H", self.buf, HEADER_SIZE + ln)
             del self.buf[:total]
-            if ln > self.max_payload:
-                self.oversize_frames += 1
-                continue
             if crc16(body) != got:
                 self.crc_errors += 1
                 continue

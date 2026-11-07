@@ -72,6 +72,24 @@ static void test_junk_crc_oversize(void) {
     CHECK(p.oversize_frames == 1);
 }
 
+static void test_bogus_length(void) {
+    uint8_t stream[512], pbuf[64];
+    size_t n = 0, off = 0, used;
+    psp_link_parser_t p;
+    psp_link_frame_t f;
+    int got = 0, i;
+    psp_link_write_header(stream, 0x10, 0, 0, 0xFFFFFFF0u);
+    n = PSP_LINK_HEADER_SIZE;
+    for (i = 0; i < 20; i++) n += psp_link_encode(stream + n, sizeof stream - n, 0x11, 0, (uint16_t)i, "ok", 2);
+    psp_link_parser_init(&p, pbuf, sizeof pbuf);
+    while (off < n) {
+        if (psp_link_parser_feed(&p, stream + off, n - off, &used, &f)) got++;
+        off += used;
+    }
+    CHECK(got == 20);
+    CHECK(p.oversize_frames == 1);
+}
+
 static void test_link_pipe(void) {
     static uint8_t a2b[4096], b2a[4096];
     static uint8_t rx_a[512], tx_a[512], ch_a[256], rx_b[512], tx_b[512], ch_b[256];
@@ -160,6 +178,7 @@ int main(int argc, char **argv) {
     test_crc();
     test_roundtrip_bytewise();
     test_junk_crc_oversize();
+    test_bogus_length();
     test_link_pipe();
     test_mailbox();
     if (fails) {
