@@ -9,6 +9,9 @@
  *   Mac: `usbhostfs_pc` (ships with the pspdev toolchain) exposes channel 4 as TCP
  *        127.0.0.1:10004 -> Mac transport spec "hostfs" (pspmac.transport).
  *
+ *   LIMIT: usbhostfs buffers at most 4 KiB of Mac->PSP data per async channel and silently drops
+ *   the overflow (vendored usbhostfs/main.c, fill_async). Keep Mac->PSP bursts < 4 KiB and read often.
+ *
  * Mode MACLINK (for bandwidth: second screen)
  *   PSP: our own pspmaclink.prx registers a vendor-class USB driver ("PspMacLinkDriver"),
  *        bulk IN 0x81 / bulk OUT 0x02, PID 0x01CB.

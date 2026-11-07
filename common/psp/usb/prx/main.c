@@ -219,12 +219,15 @@ int pmlStart(int mode) {
         r = sceUsbStart(PSP_USBBUS_DRIVERNAME, 0, 0);
         if (r < 0 && r != (int)0x80243002 /* already started */) break;
         if (mode == PML_MODE_HOSTFS) {
-            memset(&g_async, 0, sizeof(g_async));
-            r = usbAsyncRegister(ASYNC_USER, &g_async);
-            if (r < 0) break;
+            /* Order as in psplinkusb tools/remotejoy: start driver, activate, THEN register the async
+             * channel (usbhostfs's start_func clears all channel registrations). */
             r = sceUsbStart("USBHostFSDriver", 0, 0);
             if (r < 0) break;
+            g_state = 1;
             r = sceUsbActivate(PML_PID_HOSTFS);
+            if (r < 0) break;
+            memset(&g_async, 0, sizeof(g_async));
+            r = usbAsyncRegister(ASYNC_USER, &g_async);
         } else if (mode == PML_MODE_MACLINK) {
             if (!g_registered) {
                 r = sceUsbbdRegister(&g_driver);
@@ -233,6 +236,7 @@ int pmlStart(int mode) {
             }
             r = sceUsbStart(PML_DRIVER_NAME, 0, 0);
             if (r < 0) break;
+            g_state = 1; /* before activate: the attach callback may fire right away and set 2 */
             r = sceUsbActivate(PML_PID_MACLINK);
         } else {
             r = 0x80000002;
@@ -240,10 +244,12 @@ int pmlStart(int mode) {
         }
         if (r < 0) break;
         g_mode = mode;
-        g_state = 1;
         r = 0;
     } while (0);
-    if (r < 0) g_last_err = r;
+    if (r < 0) {
+        g_last_err = r;
+        g_state = 0;
+    }
     pspSdkSetK1(k1);
     return r;
 }
@@ -283,6 +289,7 @@ int pmlWrite(const void *data, int len) {
     if (g_mode == PML_MODE_HOSTFS) {
         r = usbAsyncWrite(ASYNC_USER, data, len);
         if (r > 0) g_tx_bytes += r;
+        if (r < 0) r = -2; /* usbhostfs returns -1 until usbhostfs_pc has said HELLO: "not connected" */
     } else if (g_mode == PML_MODE_MACLINK && g_state == 2) {
         sceKernelWaitSema(g_txsema, 1, NULL);
         r = maclink_write((const unsigned char *)data, len);
