@@ -282,7 +282,7 @@ def cmd_send(a) -> int:
 def cmd_probe(a) -> int:
     if a.transport == "hostfs":
         print("[probe] HOSTFS buffers only 4 KiB on the PSP and drops overflow, so a bulk probe is meaningless.\n"
-              "        Link check: python tools/usb_probe.py echo --spec hostfs --sizes 512,2048")
+              "        HOSTFS link check: main's docs/HARDWARE_TEST.md section 2 (examples/echo + usb_probe.py).")
         return 2
     t = open_any(a.transport, a.usb_wait)
     link = Link(t, app=P.APP_SCREEN, name="mac-probe")

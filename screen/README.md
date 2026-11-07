@@ -9,7 +9,7 @@ Hardware steps: [`../HARDWARE_TEST.md`](../HARDWARE_TEST.md). Decisions: [`../do
 | PSP EBOOT build (`make -C screen/psp`, USB included) | **verified** (pspdev psp-gcc 15.2) |
 | PSP app in PPSSPP, recorded stream (replay io) | **verified, pixel-exact** (VRAM compared with the source, rows 0..263) |
 | PSP app in PPSSPP, live Mac sender through `tools/ppsspp_bridge.py` | **verified, pixel-exact**. 6–11 fps, bridge-bound (see below) |
-| Mac sender ⇄ `fake_psp` (the PSP's C decoder via ctypes) | **verified, pixel-exact** (38 automated tests + 2 opt-in PPSSPP tests) |
+| Mac sender ⇄ `fake_psp` (the PSP's C decoder via ctypes) | **verified, pixel-exact** (39 automated tests + 2 opt-in PPSSPP tests) |
 | Real USB (`--transport usb`, pspmaclink.prx) | implemented and compiles; **not run** (needs the PSP) |
 | HOSTFS fallback (`--transport hostfs`) | implemented with ≤3000 B chunks and per-chunk stop-and-wait, because usbhostfs buffers only 4 KiB and drops overflow. Tested against the fake PSP; **very slow by design, not run on hardware** |
 | Sender reconnect after PSP restart / unplug | implemented, tested against the fake PSP (`--reconnect 30`) |
@@ -40,7 +40,7 @@ tools/fake_psp_screen.py     fake_psp plugin: the PSP's C decoder through ctypes
 source tools/env.sh                              # pspdev + venv on PATH
 make -C screen/psp                               # EBOOT.PBP + pspmaclink.prx + usbhostfs.prx (USB=0: emulator-only)
 make -C screen/codec                             # C decoder tests + libscrcodec.dylib
-python -m pytest -q screen/tests                 # 38 tests (+2 PPSSPP tests with RUN_PPSSPP=1)
+python -m pytest -q screen/tests                 # 39 tests (+2 PPSSPP tests with RUN_PPSSPP=1)
 python screen/tests/ppsspp_e2e.py --mode replay  # real EBOOT in PPSSPP, pixel-exact check
 python screen/tests/ppsspp_e2e.py --mode mailbox --source test-pattern --frames 40
 python screen/mac/psp_screen.py bench --frames 120 --verify

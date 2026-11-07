@@ -127,3 +127,13 @@ def test_reconnect_after_psp_restart(tmp_path):
     assert snd.returncode == 0, out
     assert "reconnected" in out, out
     assert np.array_equal(np.asarray(Image.open(got2)), np.asarray(Image.open(want)))
+
+
+def test_unread_model_catches_a_greedy_sender(tmp_path):
+    """Control for the test above: without stop-and-wait, the cumulative 4 KiB model must report overflows."""
+    got, stats = tmp_path / "psp.png", tmp_path / "stats.txt"
+    fake, port = start_fake(tmp_path, "--dump-final", str(got), "--max-unread", "4096", "--stats-file", str(stats))
+    send(port, "--source", "video-ish", "--fps", "0", "--frames", "3", "--max-chunk", "3000", "--no-chunk-ack")
+    fake.wait(timeout=30)
+    _, overflows, _ = map(int, stats.read_text().split())
+    assert overflows > 0

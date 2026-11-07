@@ -13,7 +13,7 @@ $PY -m pip install -r requirements.txt                     # numpy, mss, pyobjc 
 source tools/env.sh
 make -C screen/psp clean && make -C screen/psp             # USB build by default
 ls -l screen/psp/{EBOOT.PBP,pspmaclink.prx,usbhostfs.prx}
-$PY -m pytest -q screen/tests                              # expect: 38 passed, 2 skipped
+$PY -m pytest -q screen/tests                              # expect: 39 passed, 2 skipped
 ```
 
 ## 1. Copy to the memory stick (2 min)
@@ -103,7 +103,7 @@ That is **very slow**: one USB round trip per 3 KB. Expect a few fps at best for
 
 1. Mac, tab 1: `~/pspdev/bin/usbhostfs_pc -v` (keep it running).
 2. PSP: start the app, press **✕** (USB hostfs).
-3. Mac, tab 2, link check with small messages: `$PY tools/usb_probe.py echo --spec hostfs --sizes 512,2048`.
+3. Link check: not with this app (it doesn't echo). Use main's smoke test `docs/HARDWARE_TEST.md` section 2, the echo app in HOSTFS mode.
 4. Picture: `$PY screen/mac/psp_screen.py --transport hostfs --source test-pattern --fps 10 --duration 30 --lz4 auto`. Expected: the test pattern appears, possibly slowly. The Mac `[stats]` line shows the real fps.
 
 ## Results to record
@@ -125,7 +125,7 @@ That is **very slow**: one USB round trip per 3 KB. Expect a few fps at best for
 | PSP stays `waiting for host` | charge-only cable, USB Connection mode still on, USB plugin (RemoteJoyLite/psplink) active, camera attached | Another cable or port; exit USB mode; disable USB plugins in the CFW menu; `system_profiler SPUSBDataType \| grep -A5 -i sony`. |
 | speed shows `FULL (12M!)` | hub or cable negotiated Full-Speed (≤1.2 MB/s) | Plug directly into the Mac (USB-C adapter is fine), another cable. |
 | Mac: `PSP not found on USB (VID 054c PID 01cb)` | app not in MACLINK mode, or libusb missing | Press ○ in the menu; `brew install libusb`. |
-| Mac: `TimeoutError: no HELLO_ACK` | link up but frames not getting through | Run main's `tools/usb_probe.py echo --spec usb --sizes 100`; note the PSP counters (rx/tx bytes, last err). |
+| Mac: `TimeoutError: no HELLO_ACK` | link up but frames not getting through | Run main's smoke test (`docs/HARDWARE_TEST.md` section 3: examples/echo + `tools/usb_probe.py echo --spec usb`), since this app doesn't echo. Note the PSP counters (rx/tx bytes, last err). |
 | Mac: `[warn] no ACK for 3.0s` repeating | PSP stalled or frames corrupted (`c` counter > 0 on the PSP line) | Lower `--window 1`, try `--lz4 off`; report `e`/`c` counters. |
 | Picture OK but red and blue swapped | pixel order | Report it (encoder packs `B<<11\|G<<5\|R`, the PSP 565 order). |
 | Garbage tiles that heal after ≤5 s | lost chunks, keyframe recovery working | Report the `c` (CRC/oversize) counter. |

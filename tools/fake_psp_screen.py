@@ -12,7 +12,8 @@ Plugin args (after `--`):
     --decoder c|py        C decoder via ctypes (default) or the Python reference decoder
     --ack-delay-ms N      pretend decoding takes N ms (tests flow control)
     --drop-chunk N        drop the N-th received chunk once (tests NEED_KEY recovery)
-    --max-unread N        count link frames > N bytes (what a 4 KiB HOSTFS ring would drop)
+    --max-unread N        count overflows when bytes received since our last reply exceed N
+                          (cumulative model of usbhostfs's 4 KiB ring)
     --stats-file F        write "chunk_acks overflows frames_shown" after every frame
 Chunks with PSP_LINK_F_ACK_REQ get an SCR_CHUNK_ACK, like the PSP app (HOSTFS stop-and-wait).
 """
@@ -123,7 +124,8 @@ class Plugin:
         ap.add_argument("--ack-delay-ms", type=float, default=0.0)
         ap.add_argument("--drop-chunk", type=int, default=-1)
         ap.add_argument("--max-unread", type=int, default=0,
-                        help="flag link frames bigger than this (HOSTFS 4 KiB ring check); count is in --stats-file")
+                        help="count overflows when the bytes received since our last reply exceed N "
+                             "(cumulative HOSTFS 4 KiB ring model); count is in --stats-file")
         ap.add_argument("--stats-file", help="write 'chunk_acks overflows frames' here on every frame")
         self.a = ap.parse_args(args)
         self.scr = CScreen() if self.a.decoder == "c" else PyScreen()
@@ -133,7 +135,7 @@ class Plugin:
         self.chunks_seen = 0
         self.fps_t0, self.fps_n, self.fps_x10 = time.monotonic(), 0, 0
         self.probe = dict(bytes=0, frames=0, t0=None, t1=None)
-        self.chunk_acks = self.overflows = 0
+        self.chunk_acks = self.overflows = self.unread = 0
 
     def on_connect(self, link):
         link.name = "fake_psp_screen"
@@ -157,11 +159,15 @@ class Plugin:
             self.chunks_seen += 1
             if self.chunks_seen == self.a.drop_chunk:
                 return
+            # Cumulative model of usbhostfs's 4 KiB ring: bytes the Mac sent since our last reply. A sender
+            # that waits for a reply before sending more can never have more than that unread.
+            self.unread += len(f.payload) + P.OVERHEAD
+            if self.a.max_unread and self.unread > self.a.max_unread:
+                self.overflows += 1  # a real HOSTFS ring would have dropped bytes here
             if (f.flags & P.F_ACK_REQ) and not (f.payload[9] & S.SCR_CF_LAST):
                 link.send(S.SCR_T_CHUNK_ACK, S.CHUNK_ACK.pack(*struct.unpack_from("<IH", f.payload)))
                 self.chunk_acks += 1
-            if self.a.max_unread and len(f.payload) + P.OVERHEAD > self.a.max_unread:
-                self.overflows += 1  # a real HOSTFS ring would have dropped bytes here
+                self.unread = 0
             t0 = time.perf_counter()
             r = self.scr.chunk(f.payload)
             self.dec_us += int((time.perf_counter() - t0) * 1e6)
@@ -187,6 +193,7 @@ class Plugin:
                 ack = S.Ack(frame_id, self.dec_us, present_us, self.frames_shown, self.rx_bytes, 0, self.fps_x10,
                             S.SCR_ACKF_NEED_KEY if need_key else 0, errors)
                 link.send(S.SCR_T_ACK, ack.pack())
+                self.unread = 0
                 self.dec_us = 0
         elif f.type == S.SCR_T_PROBE_RESET:
             self.probe = dict(bytes=0, frames=0, t0=None, t1=None)
