@@ -18,11 +18,11 @@ Start: 2026-11-07 02:22 MSK. Hard stop: ~10:20 MSK.
 - Scouts (reviewers later via SendMessage): A af8362116ea1960f5, B a54fbefada454fcb1, C af3b7d072c18b0947
 - caffeinate (bg)
 
-## Track progress (03:17)
-- A mac-controller: DONE at 878abe2 (review 2: no blocking; 82 tests incl. PPSSPP e2e; orchestrator clean-clone verified).
-- B second-screen: fixes at af66cb8 (orchestrator verified: merged main, 47 pass); review 2 running.
-- C dual-screen-game: builder v1 700c02d verified (build, host tests, 22 pass); review 1 by scout C running.
-- main 6accb53: parser resync on bogus length (from review A).
+## Track progress (03:40)
+- A mac-controller: DONE. 878abe2 reviewed (round 2: no blocking); orchestrator merged main → 9565212 (83 tests pass).
+- B second-screen: DONE. ac39186 reviewed (round 2: no blocking, 2 doc fixes applied); orchestrator merged main → a762968 (51 tests pass incl. PPSSPP).
+- C dual-screen-game: review 1 → 1 blocking (OOB write/div0 in console.c on hostile HACK_REQ) + main bugs H1 (already fixed 6accb53), H2 (bridge replay on restart, fixed facaa5d). Builder C fixing; then review round 2 by scout C.
+- main facaa5d. MORNING_REPORT.md drafted (placeholders {A}{B}{C}{MAIN}{END}).
 
 ## Next
 - When a builder reports: verify (clean clone of branch, build, tests), then SendMessage its scout to review
