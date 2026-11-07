@@ -27,6 +27,10 @@ BATTERY_DRAIN = 100 / 300.0  # per second -> 5 min of power
 PING_COST, LISTEN_COST = 3.0, 1.0
 HACK_TIME_DS = 200           # 20 s to solve a lock
 HACK_RETRY_S = 3.0
+# Mac-side ping rate limits (the PSP enforces 1.5 s / 0.6 s; a bit of slack for link jitter). They stop a
+# misbehaving peer from draining the battery and from flooding the 4 KiB usbhostfs Mac->PSP ring with ECHOs.
+PING_MIN_INTERVAL_S = 1.2
+LISTEN_MIN_INTERVAL_S = 0.4
 
 
 @dataclass
@@ -148,9 +152,14 @@ class World:
             c.state, c.tx, c.ty = "hunt", x, y
 
     # ---- PSP commands -----------------------------------------------------------
-    def ping(self, ping_id: int, mode: int) -> list[G.Contact]:
+    def ping(self, ping_id: int, mode: int) -> list[G.Contact] | None:
+        """Contacts for an ECHO, or None when the ping is rate-limited (no ECHO must be sent)."""
         if self.state != "play":
             return []
+        key, gap = ("ping", PING_MIN_INTERVAL_S) if mode == G.PING_ACTIVE else ("listen", LISTEN_MIN_INTERVAL_S)
+        if not self._cooldown(key, gap):
+            self.stats["pings_dropped"] = self.stats.get("pings_dropped", 0) + 1
+            return None
         s = self.sub
         out: list[tuple[float, G.Contact, int, object]] = []
 

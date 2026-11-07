@@ -87,6 +87,7 @@ Paste `/tmp/bw_hw.json` into `docs/MORNING_REPORT.md`. The useful fields are:
 | PSP says `LINK USB` never, and the Mac says `PSP SILENT (hostfs)` | usbhostfs_pc is up but the PSP is not attached, or the HELLO was lost | Check that tab 1 printed "connected". Restart the PSP app; the Mac re-sends HELLO every 1 s. Try `usbhostfs_pc -p 0x1c9 -vv`. |
 | Mac `waiting for PSP on hostfs: … refused` | usbhostfs_pc not running | Start tab 1 first. Port 10004 = channel 4. |
 | Link up, but the PSP scope never updates | Mac→PSP data lost: usbhostfs keeps only a 4 KiB Mac→PSP ring and drops overflow | Run the Mac with `--state-hz 5`. Report `rx_frames` / `tx_frames` from the summary. |
+| Scope stops updating after a while (the Mac still moves; the PSP header may flip to `NO LINK`) | link stalled or the byte stream got out of sync (the parser resyncs, and the PSP resets it on LINK LOST) | Wait 3 s: both sides re-HELLO by themselves. If that fails, HOME → restart the PSP app (a READY during a dive rejoins it). Then restart `usbhostfs_pc`. Note the `rx_frames` counts from the summary. |
 | Lock never opens on the Mac after ✕ | HACK_RESULT lost, or a mismatch (wrong bars: the log says `MISMATCH: -3 S`) | Make sure all bars are green, then press ✕. The Mac re-requests the lock 25 s after an unanswered HACK_REQ. |
 | Mac keys do nothing | the pygame window is not focused | Click the window. |
 | PSP freezes | kernel-side problem (HOSTFS mode does not use our own USB driver, only psplink's usbhostfs) | Hold POWER for 10 s. Note what was on the screen. |

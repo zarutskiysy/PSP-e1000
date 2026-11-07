@@ -115,6 +115,12 @@ def main(argv=None) -> int:
             emu.quit()
     mac_sum = json.loads(summary_path.read_text()) if summary_path.exists() else {}
     res["mac"] = mac_sum
+    st = mac_sum.get("stats", {})
+    if res["hacks_solved_on_psp"] != st.get("hacks_ok", 0):
+        res["warning"] = (f"{res['hacks_solved_on_psp']} locks keyed in on the PSP but the Mac saw "
+                          f"{st.get('hacks_ok', 0)} ok / {st.get('hacks_failed', 0)} failed: taps were probably "
+                          "dropped (emulator paused by a screenshot, or presses merged)")
+        print("WARNING:", res["warning"], file=sys.stderr)
     print(json.dumps(res))
     ok = mac_sum.get("outcome") in ("won", "lost") and mac_sum.get("gates_open", 0) >= 1
     return 0 if ok else 1

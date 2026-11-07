@@ -35,6 +35,12 @@ def run_mac(port, tmp, *extra, timeout=120):
     return json.loads(summary.read_text())
 
 
+@pytest.mark.parametrize("spec", ["foo", "tcp:127.0.0.1", "usb", "tcp::1", "tcp:h:99999"])
+def test_bad_transport_exits_2(spec):
+    r = subprocess.run([PY, str(GAME), "--transport", spec, "--headless"], capture_output=True, text=True, timeout=20)
+    assert r.returncode == 2 and "bad --transport" in r.stderr
+
+
 def test_mac_vs_python_fake_psp(tmp_path):
     port = free_port()
     fs = tmp_path / "fake.json"
@@ -82,7 +88,8 @@ PSPDEV = pathlib.Path(os.environ.get("PSPDEV", pathlib.Path.home() / "pspdev"))
                          and (PSPDEV / "bin/psp-gcc").exists()),
                     reason="set BW_EMU=1 (needs PPSSPP + pspdev; ~2 min)")
 def test_mac_vs_eboot_in_ppsspp(tmp_path):
-    r = subprocess.run([PY, str(ROOT / "tools/play_emulator_game.py"), "--port", "45673", "--out", str(tmp_path)],
+    port = os.environ.get("BW_EMU_PORT", "45673")  # track C's PPSSPP debugger port
+    r = subprocess.run([PY, str(ROOT / "tools/play_emulator_game.py"), "--port", port, "--out", str(tmp_path)],
                        capture_output=True, text=True, timeout=400)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
     res = json.loads(r.stdout.strip().splitlines()[-1])

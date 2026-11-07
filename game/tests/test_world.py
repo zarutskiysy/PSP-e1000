@@ -62,6 +62,17 @@ def test_mark_drops_buoy_at_contact():
     assert not w.mark(9, 99) and not w.mark(42, 0)
 
 
+def test_ping_spam_is_rate_limited():
+    w = Wd.World(1)
+    b0 = w.sub.battery
+    replies = [w.ping(i, G.PING_ACTIVE) for i in range(50)]  # 50 PING_CMDs in the same tick
+    assert sum(r is not None for r in replies) == 1
+    assert b0 - w.sub.battery <= Wd.PING_COST + 1e-9
+    for _ in range(int(Wd.PING_MIN_INTERVAL_S * 30) + 1):
+        w.step(1 / 30, (0, 0))
+    assert w.ping(99, G.PING_ACTIVE) is not None
+
+
 def test_battery_death():
     w = Wd.World(1)
     w.sub.battery = 0.01

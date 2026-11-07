@@ -1,7 +1,8 @@
 #include "gfx.h"
 
-/* Classic 5x7 column-major glyphs (LSB = top row) for ASCII 0x20..0x5F. The zero is slashed so
- * it cannot be confused with the letter O on the hack console. */
+/* Classic public 5x7 column-major glyph table (LSB = top row) for ASCII 0x20..0x5F; the bytes match
+ * Adafruit-GFX glcdfont.c (BSD licence, https://github.com/adafruit/Adafruit-GFX-Library). Its zero is
+ * slashed, so it cannot be confused with the letter O on the hack console. */
 static const uint8_t font5x7[64][5] = {
     {0x00, 0x00, 0x00, 0x00, 0x00}, {0x00, 0x00, 0x5F, 0x00, 0x00}, {0x00, 0x07, 0x00, 0x07, 0x00},
     {0x14, 0x7F, 0x14, 0x7F, 0x14}, {0x24, 0x2A, 0x7F, 0x2A, 0x12}, {0x23, 0x13, 0x08, 0x64, 0x62},

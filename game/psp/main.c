@@ -122,7 +122,7 @@ int main(void) {
     strncpy(io_label, app.io_name, sizeof io_label - 1);
 
     while (running) {
-        uint32_t now = sceKernelGetSystemTimeLow() / 1000u;
+        uint32_t now = (uint32_t)(sceKernelGetSystemTimeWide() / 1000u); /* ms; wraps after 49 days */
         sceCtrlPeekBufferPositive(&pad, 1);
         bw_app_step(&app, now, map_buttons(pad.Buttons), axis(pad.Lx), axis(pad.Ly));
         strncpy(io_label, app.io_dead && !app.demo ? "IO ERR" : app.io_name, sizeof io_label - 1);

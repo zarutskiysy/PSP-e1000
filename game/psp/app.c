@@ -69,6 +69,8 @@ void bw_app_step(bw_app_t *a, uint32_t now_ms, uint16_t buttons, int8_t ax, int8
     if (a->con.link_up && now_ms - a->last_rx_ms > LINK_TIMEOUT_MS) {
         bw_console_set_link(&a->con, 0);
         a->link.peer_hello = 0;
+        psp_link_parser_reset(&a->link.parser); /* defence in depth: drop any half-parsed frame */
+        a->link.rx_have = a->link.rx_off = 0;
     }
     if (!a->con.link_up && !a->io_dead && now_ms - a->last_hello_ms >= HELLO_PERIOD_MS &&
         (!a->peer_present || a->peer_present(a->peer_ctx))) {

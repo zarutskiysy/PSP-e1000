@@ -54,9 +54,10 @@ void bw_console_set_link(bw_console_t *c, int up) {
 
 void bw_hack_generate(uint32_t seed, uint8_t difficulty, uint8_t *n, uint8_t *target, uint8_t *start) {
     uint32_t s = seed, i;
-    uint8_t k = (uint8_t)(3 + difficulty);
+    unsigned k = 3u + (unsigned)difficulty; /* unsigned: no u8 wrap for difficulty 253..255 */
     if (k > BW_HACK_MAX) k = BW_HACK_MAX;
-    *n = k;
+    if (k < 1u) k = 1u;
+    *n = (uint8_t)k;
     for (i = 0; i < k; i++) {
         target[i] = (uint8_t)(bw_rng_next(&s) % 8u);
         start[i] = (uint8_t)((target[i] + 1 + bw_rng_next(&s) % 7u) % 8u); /* never already solved */
@@ -226,6 +227,8 @@ static void do_mark(bw_console_t *c) {
 }
 
 static void hack_input(bw_console_t *c, uint16_t pressed) {
+    if (c->hack_n == 0 || c->hack_n > BW_HACK_MAX) { finish_hack(c, 0); return; } /* never index with it */
+    if (c->hack_cursor >= c->hack_n) c->hack_cursor = 0;
     if (pressed & BW_B_LEFT) c->hack_cursor = (uint8_t)(c->hack_cursor ? c->hack_cursor - 1 : c->hack_n - 1);
     if (pressed & BW_B_RIGHT) c->hack_cursor = (uint8_t)((c->hack_cursor + 1) % c->hack_n);
     if (pressed & BW_B_UP) c->hack_val[c->hack_cursor] = (uint8_t)((c->hack_val[c->hack_cursor] + 1) % 8u);
@@ -235,9 +238,9 @@ static void hack_input(bw_console_t *c, uint16_t pressed) {
         if (!memcmp(c->hack_val, c->hack_target, c->hack_n)) {
             finish_hack(c, 1);
         } else {
-            c->hack_deadline_ms = c->hack_deadline_ms > c->now_ms + BW_HACK_PENALTY_MS
-                                      ? c->hack_deadline_ms - BW_HACK_PENALTY_MS
-                                      : c->now_ms;
+            uint32_t total = c->hack_deadline_ms - c->hack_start_ms, used = c->now_ms - c->hack_start_ms;
+            uint32_t remaining = used < total ? total - used : 0; /* unsigned differences: wrap-safe */
+            c->hack_deadline_ms = remaining > BW_HACK_PENALTY_MS ? c->hack_deadline_ms - BW_HACK_PENALTY_MS : c->now_ms;
             bw_console_log(c, "MISMATCH: -3 S");
         }
     }
@@ -264,7 +267,9 @@ void bw_console_tick(bw_console_t *c, uint32_t now_ms, uint16_t buttons, int8_t 
         if (pressed & BW_B_TRIANGLE) do_mark(c);
     } else if (c->phase == BW_PH_HACK) {
         hack_input(c, pressed);
-        if (c->phase == BW_PH_HACK && (int32_t)(now_ms - c->hack_deadline_ms) >= 0) finish_hack(c, 0);
+        /* wrap-safe: elapsed since start (unsigned difference) vs. the allowed duration */
+        if (c->phase == BW_PH_HACK &&
+            now_ms - c->hack_start_ms >= c->hack_deadline_ms - c->hack_start_ms) finish_hack(c, 0);
     }
     /* nub -> PILOT (solo mode on the Mac side uses it; co-op ignores it) */
     if (c->phase == BW_PH_PLAY || c->phase == BW_PH_HACK) {

@@ -224,7 +224,7 @@ class Game:
         elif f.type == G.T_PING_CMD and len(f.payload) >= G.S_PING_CMD.size and w is not None:
             pid, mode, _b, _wd = G.S_PING_CMD.unpack_from(f.payload)
             contacts = w.ping(pid, mode)
-            if w.state == "play":
+            if contacts is not None and w.state == "play":
                 self.links.send(G.T_ECHO, G.pack_echo(pid, mode, contacts))
                 self.echoes_sent += 1
                 self.say("PSP: ACTIVE PING (LOUD)" if mode == G.PING_ACTIVE else "PSP: LISTENING")
@@ -480,7 +480,7 @@ class Game:
                     elif ev.key == pygame.K_F12:
                         self.shot(str(ROOT / "docs" / "img" / f"mac_{int(time.time())}.png"))
                     elif ev.key == pygame.K_p and self.world is not None:
-                        self.handle(P.Frame(G.T_PING_CMD, 0, 0, G.pack_ping_cmd(200 + self.frame % 50, 1)))
+                        self.world.ping(200 + self.frame % 50, G.PING_ACTIVE)  # debug: Mac-only ping, no ECHO
             if not a.headless:
                 keys = pygame.key.get_pressed()
             self.step(keys)
@@ -538,9 +538,19 @@ class Game:
         }
 
 
+def valid_transport(spec: str) -> bool:
+    if spec in ("mock", "hostfs", "none"):
+        return True
+    parts = spec.split(":")
+    return len(parts) == 3 and parts[0] == "tcp" and bool(parts[1]) and parts[2].isdigit() and 0 < int(parts[2]) < 65536
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--transport", default="mock", help='mock | hostfs | usb | tcp:HOST:PORT | none')
+    ap.add_argument("--transport", default="mock",
+                    help="mock (127.0.0.1:47100) | hostfs (real PSP via usbhostfs_pc, 127.0.0.1:10004) | "
+                         "tcp:HOST:PORT (e.g. ppsspp_bridge) | none. ('usb' is not offered: the PSP game "
+                         "starts USB in HOSTFS mode only.)")
     ap.add_argument("--headless", action="store_true", help="SDL dummy video driver, no window")
     ap.add_argument("--bot", action="store_true", help="autopilot steers the sub (tests)")
     ap.add_argument("--autostart", action="store_true", help="dive as soon as the link is up")
@@ -560,6 +570,9 @@ def main(argv=None) -> int:
     ap.add_argument("--event-log", help="append JSON lines (hack requests, game over) for test drivers")
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args(argv)
+    if not valid_transport(a.transport):
+        print(f"blackwater: bad --transport {a.transport!r}: use mock | hostfs | none | tcp:HOST:PORT", file=sys.stderr)
+        return 2
     if a.headless:
         os.environ["SDL_VIDEODRIVER"] = "dummy"
         os.environ.setdefault("SDL_AUDIODRIVER", "dummy")

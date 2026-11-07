@@ -95,7 +95,8 @@ static void draw_scope(bw_gfx_t *g, const bw_console_t *c) {
         }
         x = SC_X + (int)((k->wx - (float)c->sub.x) * scale);
         y = SC_Y + (int)((k->wy - (float)c->sub.y) * scale);
-        if ((x - SC_X) * (x - SC_X) + (y - SC_Y) * (y - SC_Y) > SC_R * SC_R) continue;
+        if (x < SC_X - SC_R || x > SC_X + SC_R || y < SC_Y - SC_R || y > SC_Y + SC_R) continue;
+        if ((int64_t)(x - SC_X) * (x - SC_X) + (int64_t)(y - SC_Y) * (y - SC_Y) > SC_R * SC_R) continue;
         switch (k->kind) {
         case BW_K_MINE:
             bw_line(g, x - 3, y - 3, x + 3, y + 3, col);
@@ -126,8 +127,9 @@ static void draw_scope(bw_gfx_t *g, const bw_console_t *c) {
 static void draw_hack(bw_gfx_t *g, const bw_console_t *c, int y) {
     char line[40], *p;
     int i, bw = 22, gap = 8, x0 = PANEL_X + 4;
-    uint32_t left = (int32_t)(c->hack_deadline_ms - c->now_ms) > 0 ? c->hack_deadline_ms - c->now_ms : 0;
-    uint32_t total = c->hack_deadline_ms > c->hack_start_ms ? c->hack_deadline_ms - c->hack_start_ms : 1;
+    uint32_t total = c->hack_deadline_ms - c->hack_start_ms, used = c->now_ms - c->hack_start_ms;
+    uint32_t left = used < total ? total - used : 0;
+    if (!total) total = 1;
     p = put_str(line, "GATE ");
     p = put_uint(p, c->hack_gate);
     put_str(p, " PHASE LOCK");

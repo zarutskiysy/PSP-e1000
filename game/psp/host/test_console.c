@@ -56,6 +56,10 @@ static void test_rng_puzzle(void) {
     for (i = 0; i < n; i++) CHECK(t[i] < 8 && v[i] < 8 && t[i] != v[i]);
     bw_hack_generate(0xC0FFEE, 9, &n, t, v);
     CHECK(n == BW_HACK_MAX);
+    for (i = 250; i <= 255; i++) { /* u8 wrap of 3 + difficulty used to give n = 0..2 */
+        bw_hack_generate(7, (uint8_t)i, &n, t, v);
+        CHECK(n == BW_HACK_MAX);
+    }
 }
 
 static void feed(bw_console_t *c, uint8_t type, const uint8_t *p, uint32_t n) { bw_console_on_frame(c, type, p, n); }
@@ -132,6 +136,66 @@ static void test_flow(void) {
     CHECK(c.phase == BW_PH_OVER && c.outcome == 1);
 }
 
+/* hostile HACK_REQ difficulties + every button: no OOB / div-by-zero (run under ASan/UBSan) */
+static void test_hostile_hack(void) {
+    bw_console_t c;
+    uint8_t p[64];
+    uint32_t t = 1000, d, b;
+    for (d = 250; d <= 255; d++) {
+        bw_hack_req_t h = {1, 0, (uint8_t)d, 0, 50};
+        bw_console_init(&c, cap_send, NULL);
+        feed(&c, BW_T_HACK_REQ, p, bw_pack_hack_req(p, &h));
+        CHECK(c.phase == BW_PH_HACK && c.hack_n >= 1 && c.hack_n <= BW_HACK_MAX);
+        for (b = 0; b < 64; b++) {
+            bw_console_tick(&c, t += 16, (uint16_t)(1u << (b % 4)), 0, 0); /* up/down/left/right */
+            bw_console_tick(&c, t += 16, 0, 0, 0);
+            CHECK(c.hack_cursor < BW_HACK_MAX);
+        }
+        CHECK(c.send == cap_send);
+    }
+    /* forced hack_n = 0 must not index anything */
+    bw_console_init(&c, cap_send, NULL);
+    { bw_hack_req_t h = {1, 0, 0, 0, 50}; feed(&c, BW_T_HACK_REQ, p, bw_pack_hack_req(p, &h)); }
+    c.hack_n = 0;
+    bw_console_tick(&c, t += 16, BW_B_RIGHT, 0, 0);
+    CHECK(c.phase == BW_PH_PLAY);
+}
+
+/* clock wrap: a lock started just before 2^32 ms still times out after its limit, not instantly */
+static void test_clock_wrap(void) {
+    bw_console_t c;
+    uint8_t p[64];
+    uint32_t t = 0xFFFFFF00u;
+    bw_console_init(&c, cap_send, NULL);
+    bw_console_tick(&c, t, 0, 0, 0);
+    { bw_hack_req_t h = {1, 0, 0, 0, 10}; feed(&c, BW_T_HACK_REQ, p, bw_pack_hack_req(p, &h)); } /* 1 s */
+    bw_console_tick(&c, t += 500, 0, 0, 0); /* wrapped past 0 */
+    CHECK(c.phase == BW_PH_HACK);
+    bw_console_tick(&c, t += 600, 0, 0, 0);
+    CHECK(c.phase == BW_PH_PLAY && c.hacks_failed == 1);
+}
+
+/* hostile echoes / sub positions through the renderer (UBSan: no signed overflow) */
+static void test_hostile_view(void) {
+    static uint32_t fb[BW_STRIDE * BW_SCREEN_H];
+    bw_gfx_t g = {fb};
+    bw_console_t c;
+    uint8_t p[256];
+    bw_echo_t e;
+    int i;
+    bw_console_init(&c, cap_send, NULL);
+    { bw_game_start_t gs = {1, 0, 1, 1}; feed(&c, BW_T_GAME_START, p, bw_pack_game_start(p, &gs)); }
+    { bw_sub_state_t s = {1, -32768, 32767, 0xFFFF, 255, 255, 255, 255, 255, 255}; feed(&c, BW_T_SUB_STATE, p, bw_pack_sub_state(p, &s)); }
+    memset(&e, 0, sizeof e);
+    e.ping_id = 1; e.mode = 1; e.n = BW_ECHO_MAX;
+    for (i = 0; i < BW_ECHO_MAX; i++) { e.c[i].bearing = (uint16_t)(i * 2731); e.c[i].range = 65535; e.c[i].kind = (uint8_t)(i * 37); }
+    feed(&c, BW_T_ECHO, p, bw_pack_echo(p, &e));
+    p[2] = 255; /* bogus count, short payload */
+    feed(&c, BW_T_ECHO, p, 10);
+    bw_view_draw(&g, &c, "T");
+    CHECK(c.ncontacts == BW_ECHO_MAX);
+}
+
 static void test_demo_app(void) {
     static bw_app_t a;
     static uint32_t fb[BW_STRIDE * BW_SCREEN_H];
@@ -154,6 +218,9 @@ int main(void) {
     test_golden();
     test_rng_puzzle();
     test_flow();
+    test_hostile_hack();
+    test_clock_wrap();
+    test_hostile_view();
     test_demo_app();
     if (fails) { fprintf(stderr, "%d check(s) failed\n", fails); return 1; }
     printf("game/psp host tests: all passed\n");

@@ -76,7 +76,7 @@ Rules:
 |---|---|
 | `game/proto_game.h` | message ids, sizes, pack/unpack (plain C) |
 | `game/psp/console.c` | PSP game logic: phases, sonar contacts in world coordinates, pings/cooldowns, buoy pick, phase-lock puzzle, nub→PILOT |
-| `game/psp/view.c`, `gfx.c` | software renderer into the 8888 framebuffer (own 5×7 font with a slashed zero, lines, circles) |
+| `game/psp/view.c`, `gfx.c` | software renderer into the 8888 framebuffer (lines, circles, rects, text). The font is the classic public 5×7 table; its bytes match Adafruit-GFX `glcdfont.c` (BSD licence, https://github.com/adafruit/Adafruit-GFX-Library), and its zero is slashed |
 | `game/psp/app.c` | glue: `psp_link_t` over any io + console + HELLO/link-timeout logic |
 | `game/psp/main.c` | PSP platform. `select_io()` is the only place that picks the transport: USB hostfs on hardware, the mailbox in PPSSPP, or the in-process demo Mac (`demo_mac.c`) as fallback or when SELECT is held |
 | `game/psp/host/` | macOS build of the same C code: unit tests, plus `psp_host` (TCP "PSP" with a bot, PPM screenshots, `--hackgen` golden) |
