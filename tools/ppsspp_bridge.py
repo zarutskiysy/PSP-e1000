@@ -27,11 +27,15 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from ppsspp import DEFAULT_PORT, Ppsspp  # noqa: E402
 
 MAGIC = b"PSPMACLINK/MBOX1"
-HDR = struct.Struct("<16sIIIIIIIIII8x")  # 64 bytes
+HDR = struct.Struct("<16sIIIIIIIIIII4x")  # 64 bytes
 assert HDR.size == 64
 OFF_M2P_HEAD, OFF_P2M_TAIL, OFF_BRIDGE_BEAT = 32, 44, 48
 USER_RAM = (0x08800000, 0x0A000000)
 DEBUG = bool(int(__import__("os").environ.get("BRIDGE_DEBUG", "0")))
+
+
+class MailboxGone(RuntimeError):
+    pass
 
 
 class Mailbox:
@@ -40,11 +44,13 @@ class Mailbox:
     (writes + header read), plus one more only when the PSP has sent data."""
 
     KEYS = ["magic", "self", "version", "m2p_cap", "p2m_cap", "m2p_head", "m2p_tail", "p2m_head", "p2m_tail",
-            "bridge_beat", "psp_beat"]
+            "bridge_beat", "psp_beat", "boot_id"]
 
     def __init__(self, emu: Ppsspp, addr: int):
         self.emu, self.addr = emu, addr
         h = self.header()
+        if h["magic"] != MAGIC:
+            raise MailboxGone(f"no mailbox at 0x{addr:08X}")
         self.m2p_cap, self.p2m_cap = h["m2p_cap"], h["p2m_cap"]
         self.m2p = addr + 64
         self.p2m = self.m2p + self.m2p_cap
@@ -52,6 +58,8 @@ class Mailbox:
         self.m2p_head = h["m2p_head"]
         self.p2m_tail = h["p2m_tail"]
         self.last = h
+        self.resets = 0
+        self.boot_id = h["boot_id"]
 
     def _parse(self, b64: str) -> dict:
         import base64
@@ -90,6 +98,20 @@ class Mailbox:
         reqs.append(("memory.write_u32", {"address": self.addr + OFF_BRIDGE_BEAT, "value": self.beat}))
         reqs.append(("memory.read", {"address": self.addr, "size": 64}))
         h = self._parse(self.emu.batch(reqs)[-1]["base64"])
+        if h["magic"] != MAGIC or (h["self"] & 0x1FFFFFFF) != (self.addr & 0x1FFFFFFF):
+            raise MailboxGone("mailbox header changed (PSP app exited or restarted elsewhere)")
+        if (h["boot_id"] != self.boot_id
+                or ((self.m2p_head - h["m2p_tail"]) & 0xFFFFFFFF) > self.m2p_cap
+                or ((h["p2m_head"] - self.p2m_tail) & 0xFFFFFFFF) > self.p2m_cap):
+            # PSP app restarted at the same address (counters back to 0): resync, drop stale bytes.
+            self.resets += 1
+            self.boot_id = h["boot_id"]
+            outgoing.clear()
+            self.m2p_head, self.p2m_tail = h["m2p_tail"], h["p2m_head"]
+            self.emu.batch([("memory.write_u32", {"address": self.addr + OFF_M2P_HEAD, "value": self.m2p_head}),
+                            ("memory.write_u32", {"address": self.addr + OFF_P2M_TAIL, "value": self.p2m_tail})])
+            self.last = self.header()
+            return b""
         self.last = h
         avail = (h["p2m_head"] - self.p2m_tail) & 0xFFFFFFFF
         if not avail:
@@ -125,6 +147,27 @@ def find_mailbox(emu: Ppsspp, timeout: float = 15.0, chunk: int = 1 << 20) -> in
     raise TimeoutError("mailbox not found in PSP RAM (is the PSP app using io_mailbox and running?)")
 
 
+def reattach(emu_port: int, old: Ppsspp | None, timeout: float = 30.0) -> tuple[Ppsspp, "Mailbox"]:
+    """Reconnect to the debugger and find the (new) mailbox; PPSSPP drops debugger sockets on reset."""
+    try:
+        if old is not None:
+            old.ws.close()
+    except Exception:
+        pass
+    deadline = time.monotonic() + timeout
+    last: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            emu = Ppsspp(emu_port)
+            mb = Mailbox(emu, find_mailbox(emu, timeout=5))
+            mb.drain()
+            return emu, mb
+        except Exception as e:
+            last = e
+            time.sleep(0.5)
+    raise RuntimeError(f"could not reattach to PPSSPP: {last!r}")
+
+
 def serve(emu_port: int, listen_host: str, listen_port: int, idle_sleep: float, once: bool, quiet: bool) -> int:
     log = (lambda *_: None) if quiet else (lambda *a: print("[bridge]", *a, flush=True))
     # PPSSPP drops debugger WebSockets that sit idle (we don't answer its pings while blocked in
@@ -151,7 +194,7 @@ def serve(emu_port: int, listen_host: str, listen_port: int, idle_sleep: float, 
             mb = Mailbox(emu, addr)
         mb.drain()
         outgoing = bytearray()
-        polls, t0, up, down = 0, time.monotonic(), 0, 0
+        polls, t0, up, down, reattaches = 0, time.monotonic(), 0, 0, 0
         try:
             while True:
                 try:
@@ -162,7 +205,16 @@ def serve(emu_port: int, listen_host: str, listen_port: int, idle_sleep: float, 
                     down += len(d)
                 except BlockingIOError:
                     pass
-                got = mb.poll(outgoing)
+                try:
+                    got = mb.poll(outgoing)
+                except (ConnectionError, OSError):
+                    raise
+                except Exception as e:  # PPSSPP closed the debugger socket or the app restarted
+                    log(f"emulator side lost ({e!r}); reattaching, keeping the Mac client")
+                    emu, mb = reattach(emu_port, emu)
+                    outgoing.clear()
+                    reattaches += 1
+                    continue
                 polls += 1
                 if DEBUG:
                     h = mb.last
@@ -181,7 +233,7 @@ def serve(emu_port: int, listen_host: str, listen_port: int, idle_sleep: float, 
             log(f"emulator link error: {e!r}")
         dt = time.monotonic() - t0
         log(f"client gone after {dt:.1f}s, {polls} polls ({polls / max(dt, 1e-9):.0f}/s), "
-            f"{up} B psp->mac, {down} B mac->psp")
+            f"{up} B psp->mac, {down} B mac->psp, {reattaches} reattach(es), {mb.resets} ring resync(s)")
         cli.close()
         try:
             emu.ws.close()

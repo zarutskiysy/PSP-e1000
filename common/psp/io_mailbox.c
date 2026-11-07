@@ -4,14 +4,17 @@
 #include <pspiofilemgr.h>
 #include <pspthreadman.h>
 static void mbox_sleep_us(int us) { sceKernelDelayThread(us); }
+static uint32_t mbox_boot_id(void) { return sceKernelGetSystemTimeLow() | 1u; }
 int psp_is_emulator(void) {
     uint32_t out = 0;
     int r = sceIoDevctl("emulator:", 3 /* EMULATOR_DEVCTL__IS_EMULATOR */, NULL, 0, &out, sizeof out);
     return r >= 0 && out == 1;
 }
 #else
+#include <time.h>
 #include <unistd.h>
 static void mbox_sleep_us(int us) { usleep((useconds_t)us); }
+static uint32_t mbox_boot_id(void) { return (uint32_t)clock() ^ (uint32_t)time(NULL) ^ 1u; }
 int psp_is_emulator(void) { return 0; }
 #endif
 
@@ -23,6 +26,7 @@ int psp_mbox_init(psp_mbox_t *mb, void *mem, uint32_t size, uint32_t m2p_cap, ui
     h->version = 1;
     h->m2p_cap = m2p_cap;
     h->p2m_cap = p2m_cap;
+    h->boot_id = mbox_boot_id();
     mb->hdr = h;
     mb->m2p = (uint8_t *)mem + PSP_MBOX_HDR_SIZE;
     mb->p2m = mb->m2p + m2p_cap;
