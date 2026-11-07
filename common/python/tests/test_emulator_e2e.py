@@ -54,3 +54,33 @@ def test_handshake_ping_echo(echo_in_emulator):
     f = link.wait_for(0xF1, 20)
     assert f is not None and f.payload == payload
     link.close()
+
+
+def test_psp_app_restart_resyncs(echo_in_emulator):
+    """A PSP app restart re-initialises the mailbox (counters 0, new boot_id). The bridge must resync instead
+    of replaying its stale ring, and a new handshake on the same TCP link must work.
+    Simulated by rewriting the header: PPSSPP 1.20.4 deadlocks on game.reset while a debugger client is attached."""
+    import struct
+
+    from ppsspp import Ppsspp
+    from ppsspp_bridge import find_mailbox
+
+    link = Link(TcpTransport("127.0.0.1", echo_in_emulator, connect_timeout=20))
+    link.handshake(timeout=10)
+    for i in range(5):
+        link.send(0xF1, bytes([i]) * 3000)
+        assert link.wait_for(0xF1, 10).payload == bytes([i]) * 3000
+    emu = Ppsspp(PORT)
+    addr = find_mailbox(emu)
+    # m2p_head, m2p_tail, p2m_head, p2m_tail = 0 ; boot_id = new value (what psp_mbox_init does)
+    emu.batch([("memory.write", {"address": addr + 32, "base64": __import__("base64").b64encode(bytes(16)).decode()}),
+               ("memory.write_u32", {"address": addr + 56, "value": 0x12345679})])
+    emu.ws.close()
+    rx_before = link.rx_bytes
+    peer = link.handshake(timeout=2, attempts=10)
+    assert peer.name == "echo"
+    link.send(0xF1, b"after")
+    f = link.wait_for(0xF1, 10)
+    assert f is not None and f.payload == b"after"
+    assert link.rx_bytes - rx_before < 5000, link.rx_bytes - rx_before  # no replay of the old 15 KB
+    link.close()
