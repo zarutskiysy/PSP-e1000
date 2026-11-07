@@ -59,6 +59,8 @@ class LinkManager:
         self.by_type_rx: dict[str, int] = {}
         self.tx_bytes = self.rx_bytes = 0
         self.t_connected: float | None = None
+        self.last_rx = 0.0      # monotonic time of the last frame from the PSP
+        self.last_hello = 0.0
         self._connecting = False
         self.connect()
 
@@ -88,6 +90,12 @@ class LinkManager:
     @property
     def up(self) -> bool:
         return self.link is not None
+
+    @property
+    def peer_ok(self) -> bool:
+        """Transport up AND the PSP app answered recently. With "hostfs", usbhostfs_pc accepts TCP before
+        a PSP is attached, so `up` alone proves nothing."""
+        return self.link is not None and time.monotonic() - self.last_rx < 3.0
 
     def _drop(self, why: str) -> None:
         with self.lock:
@@ -124,12 +132,18 @@ class LinkManager:
             if now - self.last_ping > 1.0:
                 self.last_ping = now
                 lk.send(P.T_PING, struct.pack("<d", now))
+            mono = time.monotonic()
+            if not self.peer_ok and mono - self.last_hello > 1.0:
+                # the first HELLO may have been lost (hostfs before the PSP attached, PSP app restarted)
+                self.last_hello = mono
+                lk.send(P.T_HELLO, lk.hello_payload())
             while len(out) < max_frames:
                 f = lk.recv(0)
                 if f is None:
                     break
                 n = G.NAMES.get(f.type, P.TYPE_NAMES.get(f.type, hex(f.type)))
                 self.by_type_rx[n] = self.by_type_rx.get(n, 0) + 1
+                self.last_rx = time.monotonic()
                 if f.type == P.T_PONG and len(f.payload) == 8:
                     self.rtts.append(time.perf_counter() - struct.unpack("<d", f.payload)[0])
                     continue
@@ -202,6 +216,11 @@ class Game:
         if f.type == G.T_READY:
             if w is None or w.state != "play":
                 self.start_game()
+            else:  # PSP app (re)started mid-dive: let it rejoin the running game
+                self.links.send(G.T_GAME_START, G.pack_game_start(w.level, w.mode, w.seed, Wd.MAX_RANGE))
+                self.say("PSP CONSOLE REJOINED")
+                if w.hack_gate is not None:
+                    w.hack_gate = None  # re-issue the lock puzzle on the next tick
         elif f.type == G.T_PING_CMD and len(f.payload) >= G.S_PING_CMD.size and w is not None:
             pid, mode, _b, _wd = G.S_PING_CMD.unpack_from(f.payload)
             contacts = w.ping(pid, mode)
@@ -258,10 +277,10 @@ class Game:
                 self.event_log({"ev": "over", "state": w.state, "reason": w.reason})
                 self.log(f"game over: {w.state} ({w.reason}) t={w.t:.1f}s stats={w.stats}")
         now = time.monotonic()
-        if now - self.last_state_wall >= 1.0 / self.a.state_hz and w is not None and self.links.up:
+        if now - self.last_state_wall >= 1.0 / self.a.state_hz and w is not None and self.links.peer_ok:
             self.last_state_wall = now
             self.links.send(G.T_SUB_STATE, w.sub_state_payload())
-        if self.a.autostart and w is None and (self.links.up or self.a.transport == "none"):
+        if self.a.autostart and w is None and (self.links.peer_ok or self.a.transport == "none"):
             self.start_game()
 
     # ---- rendering -----------------------------------------------------------------
@@ -333,8 +352,11 @@ class Game:
                 for x in range(int(cx - hw), int(cx + hw), 20):
                     pygame.draw.line(scr, (230, 200, 60), (x, y - 3), (x + 8, y + 3), 2)
         # mines and the creature (only seen through the lamp)
+        def lit(x, y, pad=20):
+            return math.hypot(x - s.x, y - s.y) < Wd.LAMP_R + pad
+
         for m in w.mines:
-            if m.alive:
+            if m.alive and lit(m.x, m.y):
                 mx, my = int(m.x + 6 * math.sin(m.phase * 0.7)), sy(m.y)
                 pygame.draw.circle(scr, (190, 160, 60), (mx, my), Wd.MINE_R)
                 for k in range(6):
@@ -343,9 +365,10 @@ class Game:
                                      (mx + int(14 * math.cos(a)), my + int(14 * math.sin(a))), 2)
         c = w.creature
         cxs, cys = int(c.x), sy(c.y)
-        pygame.draw.ellipse(scr, (110, 20, 30), (cxs - 22, cys - 14, 44, 28))
-        pygame.draw.circle(scr, (255, 220, 120), (cxs - 8, cys - 3), 3)
-        pygame.draw.circle(scr, (255, 220, 120), (cxs + 8, cys - 3), 3)
+        if lit(c.x, c.y, 30):
+            pygame.draw.ellipse(scr, (110, 20, 30), (cxs - 22, cys - 14, 44, 28))
+            pygame.draw.circle(scr, (255, 220, 120), (cxs - 8, cys - 3), 3)
+            pygame.draw.circle(scr, (255, 220, 120), (cxs + 8, cys - 3), 3)
         # darkness with the lamp hole
         self.dark.fill((0, 0, 0, 242))
         self.dark.blit(self.lamp, (int(s.x) - Wd.LAMP_R, sy(s.y) - Wd.LAMP_R), special_flags=pygame.BLEND_RGBA_MIN)
@@ -385,9 +408,13 @@ class Game:
         self.bar(12, 46, "NOISE", s.noise, (230, 70, 70))
         self.text(f"DEPTH {int(s.y)} / {Wd.EXIT_Y}   GATES {sum(g.open for g in w.gates)}/{len(w.gates)}", (12, 66))
         rt = self.links.rtts[-20:]
-        link = (f"PSP LINK {self.links.peer or 'UP'}  RTT {1000 * statistics.median(rt):.0f} ms" if rt else
-                f"PSP LINK {self.links.peer or 'UP'}") if self.links.up else f"NO PSP LINK ({self.a.transport})"
-        self.text(link, (SCREEN_W - 330, 10), (90, 230, 120) if self.links.up else (240, 80, 60))
+        if self.links.peer_ok:
+            link = f"PSP LINK {self.links.peer or 'UP'}" + (f"  RTT {1000 * statistics.median(rt):.0f} ms" if rt else "")
+        elif self.links.up:
+            link = f"PSP SILENT ({self.a.transport}) - is the PSP app running?"
+        else:
+            link = f"NO PSP LINK ({self.a.transport})"
+        self.text(link, (SCREEN_W - 330, 10), (90, 230, 120) if self.links.peer_ok else (240, 80, 60))
         self.text("SONAR IS ON THE PSP: ASK FOR PINGS", (SCREEN_W - 330, 28), (90, 130, 120))
         if w.hack_gate is not None:
             left = max(0.0, w.hack_deadline - 5.0 - w.t)
@@ -417,8 +444,8 @@ class Game:
         ]
         for i, l in enumerate(lines):
             self.text(l, (SCREEN_W // 2, 230 + 24 * i), center=True)
-        st = (f"PSP linked: {self.links.peer or 'yes'}" if self.links.up else f"waiting for PSP ({self.a.transport})")
-        self.text(st, (SCREEN_W // 2, 340), (90, 230, 120) if self.links.up else (240, 80, 60), center=True)
+        st = (f"PSP linked: {self.links.peer or 'yes'}" if self.links.peer_ok else f"waiting for PSP ({self.a.transport})")
+        self.text(st, (SCREEN_W // 2, 340), (90, 230, 120) if self.links.peer_ok else (240, 80, 60), center=True)
         if (self.frame // 15) % 2:
             self.text("ENTER or PSP START to dive", (SCREEN_W // 2, 380), center=True)
 

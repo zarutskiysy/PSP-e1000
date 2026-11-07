@@ -97,7 +97,7 @@ def main(argv=None) -> int:
                 elif r["ev"] == "over":
                     time.sleep(1.0)
                     emu.screenshot(out / "psp_emu_over.png")
-            if time.monotonic() - last_ping > a.ping_every:
+            if not new and time.monotonic() - last_ping > a.ping_every:
                 tap(emu, "cross")
                 last_ping = time.monotonic()
                 res["pings_pressed"] += 1
