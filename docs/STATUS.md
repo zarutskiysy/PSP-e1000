@@ -19,8 +19,8 @@ Start: 2026-11-07 02:22 MSK. Hard stop: ~10:20 MSK.
 - caffeinate (bg)
 
 ## Track progress (03:17)
-- A mac-controller: builder v1 1ac47c6 verified; review 1 done (2 blocking: daemon crash on short frames, HARDWARE_TEST python paths; 8 non-blocking) → builder A fixing.
-- B second-screen: builder v1 eac982e verified; review 1 done (blocking: behind main / old PRX, HOSTFS step 7 impossible; 6 non-blocking) → builder B fixing.
+- A mac-controller: DONE at 878abe2 (review 2: no blocking; 82 tests incl. PPSSPP e2e; orchestrator clean-clone verified).
+- B second-screen: fixes at af66cb8 (orchestrator verified: merged main, 47 pass); review 2 running.
 - C dual-screen-game: builder v1 700c02d verified (build, host tests, 22 pass); review 1 by scout C running.
 - main 6accb53: parser resync on bogus length (from review A).
 
