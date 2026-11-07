@@ -11,7 +11,9 @@ typedef struct {
     bw_console_t con;
     uint8_t rx[1024], tx[1024], chunk[2048];
     const char *io_name;
-    int io_dead;           /* io returned an error: stop using it */
+    int io_dead;           /* io returned an error: stop using it (until io_retry_at if io_retry) */
+    int io_retry;          /* hardware/emulator: treat io errors as transient (cable out, host gone) */
+    uint32_t io_retry_at, io_errors;
     uint32_t last_rx_ms, last_hello_ms, now_ms;
     /* optional: returns 0 while nobody can be listening (HELLOs are held back) */
     int (*peer_present)(void *ctx);

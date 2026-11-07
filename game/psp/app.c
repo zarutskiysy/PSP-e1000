@@ -4,10 +4,16 @@
 #define LINK_TIMEOUT_MS 2500u
 #define HELLO_PERIOD_MS 1000u
 
+static void io_fail(bw_app_t *a) {
+    a->io_dead = 1;
+    a->io_errors++;
+    a->io_retry_at = a->now_ms + 500u;
+}
+
 static void app_send(void *ctx, uint8_t type, const uint8_t *p, uint32_t n) {
     bw_app_t *a = (bw_app_t *)ctx;
     if (a->io_dead) return;
-    if (psp_link_send(&a->link, type, 0, p, n) == -2) a->io_dead = 1;
+    if (psp_link_send(&a->link, type, 0, p, n) == -2) io_fail(a);
 }
 
 void bw_app_init(bw_app_t *a, psp_link_io_t io, const char *io_name) {
@@ -49,8 +55,13 @@ void bw_app_step(bw_app_t *a, uint32_t now_ms, uint16_t buttons, int8_t ax, int8
     a->now_ms = now_ms;
     a->con.now_ms = now_ms;
     if (a->demo) demo_mac_step(&a->demo_mac, now_ms);
+    if (a->io_dead && a->io_retry && (int32_t)(now_ms - a->io_retry_at) >= 0) {
+        a->io_dead = 0; /* try the transport again */
+        psp_link_parser_reset(&a->link.parser);
+        a->link.rx_have = a->link.rx_off = 0;
+    }
     while (!a->io_dead && budget-- > 0 && (r = psp_link_poll(&a->link, 0, &f)) != 0) {
-        if (r < 0) { a->io_dead = 1; break; }
+        if (r < 0) { io_fail(a); break; }
         a->last_rx_ms = now_ms;
         bw_console_set_link(&a->con, 1);
         bw_console_on_frame(&a->con, f.type, f.payload, f.len);
@@ -62,7 +73,7 @@ void bw_app_step(bw_app_t *a, uint32_t now_ms, uint16_t buttons, int8_t ax, int8
     if (!a->con.link_up && !a->io_dead && now_ms - a->last_hello_ms >= HELLO_PERIOD_MS &&
         (!a->peer_present || a->peer_present(a->peer_ctx))) {
         a->last_hello_ms = now_ms;
-        if (psp_link_send_hello(&a->link, PSP_LINK_T_HELLO, BW_APP_ID, "blackwater_psp") == -2) a->io_dead = 1;
+        if (psp_link_send_hello(&a->link, PSP_LINK_T_HELLO, BW_APP_ID, "blackwater_psp") == -2) io_fail(a);
     }
     bw_console_tick(&a->con, now_ms, buttons, ax, ay);
 }

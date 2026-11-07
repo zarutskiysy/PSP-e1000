@@ -52,6 +52,7 @@ static void select_io(uint16_t held) {
         if (psp_mbox_init(&mbox, mbox_mem, sizeof mbox_mem, 65536, 65536) == 0) {
             mbox.write_timeout_us = 100000; /* never stall the frame loop for long */
             bw_app_init(&app, psp_mbox_io(&mbox), "EMU");
+            app.io_retry = 1;
             app.peer_present = mbox_peer;
             app.peer_ctx = &mbox;
             return;
@@ -61,6 +62,7 @@ static void select_io(uint16_t held) {
         int r = psp_usb_start(PSP_USB_MODE_HOSTFS);
         if (r >= 0) {
             bw_app_init(&app, psp_usb_io(), "USB");
+            app.io_retry = 1;
             bw_console_log(&app.con, "USB HOSTFS UP: RUN USBHOSTFS_PC");
             return;
         }
@@ -123,7 +125,7 @@ int main(void) {
         uint32_t now = sceKernelGetSystemTimeLow() / 1000u;
         sceCtrlPeekBufferPositive(&pad, 1);
         bw_app_step(&app, now, map_buttons(pad.Buttons), axis(pad.Lx), axis(pad.Ly));
-        if (app.io_dead && !app.demo) strncpy(io_label, "IO ERR", sizeof io_label - 1);
+        strncpy(io_label, app.io_dead && !app.demo ? "IO ERR" : app.io_name, sizeof io_label - 1);
         g.px = bufs[back];
         bw_view_draw(&g, &app.con, io_label);
         sceKernelDcacheWritebackAll();
