@@ -43,8 +43,8 @@ Files on the stick: `ms0:/PSP/GAME/BLACKWATER/{EBOOT.PBP, usbhostfs.prx, pspmacl
    against a built-in scripted demo, so you can try the controls anyway.)
 3. **Mac, tab 2:**
    ```bash
-   cd ~/pet_projects/psp_e1000
-   .venv/bin/python game/mac/blackwater.py --transport hostfs --summary /tmp/bw_hw.json
+   cd ~/pet_projects/psp_e1000/.worktrees/dual-screen-game
+   ~/pet_projects/psp_e1000/.venv/bin/python game/mac/blackwater.py --transport hostfs --summary /tmp/bw_hw.json
    ```
    Expected within about 2 s:
    - the Mac title screen says `PSP linked: blackwater_psp`;
