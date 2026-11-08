@@ -1,5 +1,10 @@
 # Morning report — PSP E1000 × Mac (overnight run 2026-11-07, 02:22–03:45 MSK)
 
+> **Update 2026-11-08: all three tracks and both USB modes ran on the real PSP** (PSP E1000 through a USB hub, macOS 26.6).
+> Results are in "Measured on hardware" below. The statements further down about USB being untested describe the state
+> before this test. Still open: real screen
+> capture (needs Screen Recording), and the test-pattern colour check.
+
 **TL;DR.** All three POCs are built, tested and reviewed, **without hardware**. Each EBOOT builds from a clean clone
 with one command and runs in PPSSPP. The *real* PSP code talks to the *real* Mac code end-to-end in the
 emulator through a debugger bridge. The USB path compiles but has **never touched a PSP**. Your first 10 minutes:
@@ -38,13 +43,19 @@ and on `main` a parser stall on a bogus length and a bridge replay after an app 
 
 | Test | Result |
 |---|---|
-| CFW / version | |
-| `usb_probe.py list` (PID, speed) | |
-| HOSTFS ping RTT (min/median/max) | |
-| HOSTFS echo 3000 B MB/s | |
-| MACLINK ping RTT | |
-| MACLINK echo 65000 B MB/s | |
-| `psp_screen.py probe` Mac→PSP MB/s 16/64/256 KiB | |
+| CFW / version | not read off the PSP; PRO-C is likely (`PROUPDATE` and `FastRecovery` on the stick) |
+| `usb_probe.py list` (PID, speed) | 054C:01C9 (HOSTFS) and 054C:01CB (MACLINK), both high speed 480 Mbit/s, through a USB hub |
+| HOSTFS ping RTT (min/median/max) | 4.38 / 4.50 / 4.71 ms (2026-11-08, through a USB hub) |
+| Controller dry run on PSP (HOSTFS) | all buttons, scroll and 8 wheel fires reached the Mac; input **30 Hz** (design said 60), RTT median 33.3 ms / p95 33.6 ms |
+| Controller real mode on PSP (HOSTFS, Accessibility granted to Terminal.app) | **works**: confirmed by Semyon on 2026-11-08 |
+| Blackwater Ping on PSP (HOSTFS) | **won** end to end (2 gates opened, 2 dives, 220 s); RTT median 34.5 ms, max 34.7 ms (n=210); Mac→PSP 269 B/s, PSP→Mac 173 B/s |
+| HOSTFS echo 3000 B MB/s | 0.39 MB/s each way, 131 round trips/s (256 B: 210/s, 1024 B: 174/s) |
+| MACLINK ping RTT | 4.43 / 4.51 / 4.71 ms |
+| MACLINK echo 65000 B MB/s | 2.77 MB/s each way, 42.6 round trips/s (echo app round trip incl. CRC and on-screen printing each loop, so a floor; 16384 B: 1.78, 4096 B: 0.72, 512 B: 0.11) |
+| `psp_screen.py probe` Mac→PSP MB/s 16/64/256 KiB | 5.6 / **8.2** / 7.8 MB/s, 0 CRC errors (app-level ceiling; raw full-frame ceiling 31.5 fps at 64 KiB) |
+| Second screen, test pattern 30 fps | 30 fps sustained, 1.1 KiB/frame, PSP decode 0.4 ms, 0 errors |
+| Second screen, full-screen change, `--window 1` | raw: **~20 fps**, 5.3 MB/s, decode 5.5 ms, RTT 48 ms; LZ4: **~36 fps**, 31 KiB/frame, decode 14.2 ms, RTT 26 ms |
+| Second screen, full-screen change, default `--window 2` | after the USB reader-thread fix: raw **~22 fps**, 5.8 MB/s, RTT 87 ms; LZ4 **~40 fps**, 31 KiB/frame, decode 14.3 ms, RTT 47 ms; 0 errors. `--window 4` gives the same. Before the fix: ~1 fps, RTT ~2.05 s (USB deadlock between the Mac write and the PSP ACK) |
 
 ## Verified vs not
 
