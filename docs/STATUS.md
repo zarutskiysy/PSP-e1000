@@ -18,12 +18,11 @@ Start: 2026-11-07 02:22 MSK. Hard stop: ~10:20 MSK.
 - Scouts (reviewers later via SendMessage): A af8362116ea1960f5, B a54fbefada454fcb1, C af3b7d072c18b0947
 - caffeinate (bg)
 
-## Track progress (03:17)
-- A mac-controller: DONE at 878abe2 (review 2: no blocking; 82 tests incl. PPSSPP e2e; orchestrator clean-clone verified).
-- B second-screen: fixes at af66cb8 (orchestrator verified: merged main, 47 pass); review 2 running.
-- C dual-screen-game: builder v1 700c02d verified (build, host tests, 22 pass); review 1 by scout C running.
-- main 6accb53: parser resync on bogus length (from review A).
+## Track progress (03:45) — ALL DONE
+- A mac-controller: DONE 9565212 (review 2: no blocking; 83 tests).
+- B second-screen: DONE a762968 (review 2: no blocking; 51 tests incl. PPSSPP).
+- C dual-screen-game: DONE 05dbb28 (review 2: no blocking; 30 tests + PPSSPP loop).
+- main: MORNING_REPORT.md final. All branches pushed, worktrees clean.
 
 ## Next
-- When a builder reports: verify (clean clone of branch, build, tests), then SendMessage its scout to review
-- MORNING_REPORT.md at the end; README update
+- Nothing. Waiting for Semyon's hardware results (docs/MORNING_REPORT.md "Measured on hardware").

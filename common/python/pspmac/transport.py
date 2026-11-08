@@ -15,7 +15,9 @@ Spec strings for open_transport():
 from __future__ import annotations
 
 import abc
+import collections
 import socket
+import threading
 import time
 
 from . import protocol as P
@@ -123,7 +125,15 @@ class UsbTransport(Transport):
 
     The PSP side completes a bulk-OUT request on a short packet, so writes whose length is a
     multiple of the endpoint packet size are split (len-1, 1) to always end on a short packet
-    (macOS libusb cannot send zero-length packets automatically)."""
+    (macOS libusb cannot send zero-length packets automatically).
+
+    A background thread keeps a bulk-IN read posted at all times and queues what arrives. Without it
+    the link deadlocks: while the Mac is blocked in a bulk-OUT write, the PSP sits in its own bulk-IN
+    send (an ACK, say) and cannot post the OUT request the Mac is waiting for, until the PSP's 2 s send
+    timeout. Measured on hardware before this fix: ~1 fps, 2.05 s RTT for full-screen frames."""
+
+    # Long read timeout: pyusb discards partial data when a read times out mid-transfer.
+    _READER_TIMEOUT_MS = 500
 
     def __init__(self, vid: int = P.USB_VID, pid: int = P.USB_PID, wait: float = 0.0):
         import usb.core
@@ -152,6 +162,34 @@ class UsbTransport(Transport):
         if self.ep_in is None or self.ep_out is None:
             raise ConnectionError("PSP USB endpoints 0x81/0x02 not found")
         self.mps = self.ep_out.wMaxPacketSize or 512
+        self._start_reader()
+
+    def _start_reader(self) -> None:
+        self._rx: collections.deque[bytes] = collections.deque()
+        self._rx_cv = threading.Condition()
+        self._rx_error: str | None = None
+        self._stop = threading.Event()
+        self._reader = threading.Thread(target=self._reader_loop, name="psp-usb-in", daemon=True)
+        self._reader.start()
+
+    def _reader_loop(self) -> None:
+        core = self._usb.core
+        while not self._stop.is_set():
+            try:
+                data = bytes(self.ep_in.read(65536, timeout=self._READER_TIMEOUT_MS))
+            except core.USBTimeoutError:
+                continue
+            except core.USBError as e:
+                if getattr(e, "errno", None) in (60, 110):  # ETIMEDOUT on some backends
+                    continue
+                with self._rx_cv:
+                    self._rx_error = str(e)
+                    self._rx_cv.notify_all()
+                return
+            if data:
+                with self._rx_cv:
+                    self._rx.append(data)
+                    self._rx_cv.notify_all()
 
     def write(self, data: bytes) -> None:
         mv = memoryview(bytes(data))
@@ -169,17 +207,24 @@ class UsbTransport(Transport):
             raise ConnectionError(str(e)) from e
 
     def read(self, max_bytes: int = 65536, timeout: float | None = 0.1) -> bytes:
-        ms = 0 if timeout is None else max(1, int(timeout * 1000))
-        try:
-            return bytes(self.ep_in.read(max_bytes, timeout=ms))
-        except self._usb.core.USBTimeoutError:
-            return b""
-        except self._usb.core.USBError as e:
-            if getattr(e, "errno", None) in (60, 110):  # ETIMEDOUT on some backends
-                return b""
-            raise ConnectionError(str(e)) from e
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self._rx_cv:
+            while not self._rx:
+                if self._rx_error is not None:
+                    raise ConnectionError(self._rx_error)
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    return b""
+                self._rx_cv.wait(remaining)
+            data = self._rx.popleft()
+            if len(data) > max_bytes:
+                self._rx.appendleft(data[max_bytes:])
+                data = data[:max_bytes]
+            return data
 
     def close(self) -> None:
+        self._stop.set()
+        self._reader.join(timeout=self._READER_TIMEOUT_MS / 1000 + 0.5)
         try:
             self._usb.util.release_interface(self.dev, 0)
             self._usb.util.dispose_resources(self.dev)

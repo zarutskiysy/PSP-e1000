@@ -1,4 +1,9 @@
-# Morning report — PSP E1000 × Mac (overnight run 2026-11-07, 02:22–{END} MSK)
+# Morning report — PSP E1000 × Mac (overnight run 2026-11-07, 02:22–03:45 MSK)
+
+> **Update 2026-11-08: all three tracks and both USB modes ran on the real PSP** (PSP E1000 through a USB hub, macOS 26.6).
+> Results are in "Measured on hardware" below. The statements further down about USB being untested describe the state
+> before this test. Still open: real screen
+> capture (needs Screen Recording), and the test-pattern colour check.
 
 **TL;DR.** All three POCs are built, tested and reviewed, **without hardware**. Each EBOOT builds from a clean clone
 with one command and runs in PPSSPP. The *real* PSP code talks to the *real* Mac code end-to-end in the
@@ -7,12 +12,19 @@ emulator through a debugger bridge. The USB path compiles but has **never touche
 
 | Branch | Head | Verdict | Without hardware | Hardware test |
 |---|---|---|---|---|
-| `main` | {MAIN} | toolchain, link library, emulator bridge, USB PRX | C + Python tests, clean-clone build | `docs/HARDWARE_TEST.md` ≈10 min |
-| `feat/mac-controller` | {A} | **doable with hardware**, low risk | 82 tests incl. PPSSPP e2e; deck UI + wheel in PPSSPP; daemon dry-run | `HARDWARE_TEST.md` ≈15 min |
-| `feat/second-screen` | {B} | **doable with hardware**; expected ~20–25 fps raw, ~50 fps LZ4 full-screen (estimates) | pixel-exact in PPSSPP (replay + live), fuzzed C decoder | `HARDWARE_TEST.md` ≈15 min |
-| `feat/dual-screen-game` | {C} | **doable**, bandwidth trivial (< 2 KB/s) | full loop Mac ⇄ EBOOT-in-PPSSPP: ping → hack → bulkhead → win | `HARDWARE_TEST.md` ≈15 min |
+| `main` | latest | toolchain, link library, emulator bridge, USB PRX | C + Python tests, clean-clone build | `docs/HARDWARE_TEST.md` ≈10 min |
+| `feat/mac-controller` | `9565212` | **doable with hardware**, low risk | 83 tests incl. PPSSPP e2e; deck UI + wheel in PPSSPP; daemon dry-run | `HARDWARE_TEST.md` ≈15 min |
+| `feat/second-screen` | `a762968` | **doable with hardware**; expected ~20–25 fps raw, ~50 fps LZ4 full-screen (estimates) | 51 tests; pixel-exact in PPSSPP (replay + live); C decoder fuzzed (500k inputs, 0 ASan/UBSan reports) | `HARDWARE_TEST.md` ≈15 min |
+| `feat/dual-screen-game` | `05dbb28` | **doable**, bandwidth trivial (< 2 KB/s) | 30 tests + PPSSPP full loop: ping → hack → bulkhead → win; PSP code fuzzed (300k frames, clean after fix) | `HARDWARE_TEST.md` ≈15 min |
 
-No track was stopped: none hit a no-go.
+No track was stopped: none hit a no-go. `main` = the commit that contains this file.
+
+**How it was checked.** Each track: scout research → builder in its own worktree → I rebuilt from a clean clone
+and ran all tests → the scout re-reviewed adversarially (clean clone, hostile frames, fuzzing, reading
+HARDWARE_TEST.md as you would at 8 am) → fixes → round 2 with **no blocking issues** on all three. Review rounds
+found and fixed real bugs: a daemon crash on short frames (A), an outdated USB PRX on a branch + a HOSTFS mode
+that could not work (B), an out-of-bounds write / divide-by-zero in the PSP game from one hostile message (C),
+and on `main` a parser stall on a bogus length and a bridge replay after an app restart.
 
 ## What you need to do (in order)
 
@@ -21,7 +33,8 @@ No track was stopped: none hit a no-go.
    `ms0:/PSP/GAME/PSPE1000_ECHO/`, run it in HOSTFS (✕) and MACLINK (○) modes, paste the `RESULT …` lines below.
    This one test answers the three biggest unknowns: does your CFW load our kernel PRXs from a user EBOOT,
    does macOS libusb see the PSP, and what is the real MB/s.
-3. Then whichever track you like: `git switch feat/<track>` (or use `.worktrees/<track>`), follow its `HARDWARE_TEST.md`.
+3. Then whichever track you like: `cd .worktrees/<track> && git pull` (the branches are checked out there, so
+   `git switch` in the main checkout would refuse), follow its `HARDWARE_TEST.md`.
    - controller: grant **Accessibility** to your terminal app when the daemon asks (first run without `--dry-run`).
    - second screen: grant **Screen Recording** for real capture (test patterns work without it).
 4. Tell me the CFW (VSH menu / version string). Everything assumes 6.60/6.61 + PRO-C, LME or ARK-4.
@@ -30,13 +43,19 @@ No track was stopped: none hit a no-go.
 
 | Test | Result |
 |---|---|
-| CFW / version | |
-| `usb_probe.py list` (PID, speed) | |
-| HOSTFS ping RTT (min/median/max) | |
-| HOSTFS echo 3000 B MB/s | |
-| MACLINK ping RTT | |
-| MACLINK echo 65000 B MB/s | |
-| `psp_screen.py probe` Mac→PSP MB/s 16/64/256 KiB | |
+| CFW / version | not read off the PSP; PRO-C is likely (`PROUPDATE` and `FastRecovery` on the stick) |
+| `usb_probe.py list` (PID, speed) | 054C:01C9 (HOSTFS) and 054C:01CB (MACLINK), both high speed 480 Mbit/s, through a USB hub |
+| HOSTFS ping RTT (min/median/max) | 4.38 / 4.50 / 4.71 ms (2026-11-08, through a USB hub) |
+| Controller dry run on PSP (HOSTFS) | all buttons, scroll and 8 wheel fires reached the Mac; input **30 Hz** (design said 60), RTT median 33.3 ms / p95 33.6 ms |
+| Controller real mode on PSP (HOSTFS, Accessibility granted to Terminal.app) | **works**: confirmed by Semyon on 2026-11-08 |
+| Blackwater Ping on PSP (HOSTFS) | **won** end to end (2 gates opened, 2 dives, 220 s); RTT median 34.5 ms, max 34.7 ms (n=210); Mac→PSP 269 B/s, PSP→Mac 173 B/s |
+| HOSTFS echo 3000 B MB/s | 0.39 MB/s each way, 131 round trips/s (256 B: 210/s, 1024 B: 174/s) |
+| MACLINK ping RTT | 4.43 / 4.51 / 4.71 ms |
+| MACLINK echo 65000 B MB/s | 2.77 MB/s each way, 42.6 round trips/s (echo app round trip incl. CRC and on-screen printing each loop, so a floor; 16384 B: 1.78, 4096 B: 0.72, 512 B: 0.11) |
+| `psp_screen.py probe` Mac→PSP MB/s 16/64/256 KiB | 5.6 / **8.2** / 7.8 MB/s, 0 CRC errors (app-level ceiling; raw full-frame ceiling 31.5 fps at 64 KiB) |
+| Second screen, test pattern 30 fps | 30 fps sustained, 1.1 KiB/frame, PSP decode 0.4 ms, 0 errors |
+| Second screen, full-screen change, `--window 1` | raw: **~20 fps**, 5.3 MB/s, decode 5.5 ms, RTT 48 ms; LZ4: **~36 fps**, 31 KiB/frame, decode 14.2 ms, RTT 26 ms |
+| Second screen, full-screen change, default `--window 2` | after the USB reader-thread fix: raw **~22 fps**, 5.8 MB/s, RTT 87 ms; LZ4 **~40 fps**, 31 KiB/frame, decode 14.3 ms, RTT 47 ms; 0 errors. `--window 4` gives the same. Before the fix: ~1 fps, RTT ~2.05 s (USB deadlock between the Mac write and the PSP ACK) |
 
 ## Verified vs not
 
@@ -86,6 +105,8 @@ No track was stopped: none hit a no-go.
   Each screen knows what the other doesn't. ✕ ping (loud, attracts the creature), □ listen, △ buoy, nub steers (solo).
 - Bandwidth < 2 KB/s, 10 Hz state, every Mac→PSP burst < 200 B (well inside the HOSTFS 4 KiB limit).
 - Played end-to-end in PPSSPP at ~200 ms RTT and still playable; USB latency to be measured by its HARDWARE_TEST.
+- Worth one manual check on hardware: exit and relaunch the PSP app mid-dive (the emulator could only simulate an
+  app restart, because PPSSPP 1.20.4 deadlocks on `game.reset` with the debugger attached).
 
 ## Facts checked (the four in the brief)
 
