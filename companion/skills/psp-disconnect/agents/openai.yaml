@@ -1,0 +1,5 @@
+interface:
+  display_name: "PSP Disconnect"
+  short_description: "Stop showing this Codex session on the PSP"
+policy:
+  allow_implicit_invocation: false

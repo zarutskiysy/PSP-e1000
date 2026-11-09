@@ -1,0 +1,22 @@
+#!/bin/bash
+# PSP AI Companion launcher (Mac side). Symlink-safe, so ~/.local/bin/psp-companion can point here.
+source_path="${BASH_SOURCE[0]}"
+while [ -L "$source_path" ]; do
+    dir="$(cd "$(dirname "$source_path")" && pwd)"
+    source_path="$(readlink "$source_path")"
+    case "$source_path" in /*) ;; *) source_path="$dir/$source_path" ;; esac
+done
+root="$(cd "$(dirname "$source_path")/.." && pwd)"
+
+py="${PSP_COMPANION_PYTHON:-}"
+if [ -z "$py" ]; then
+    # .venv lives in the main checkout; a git worktree has to look there.
+    common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+    for candidate in "$root/.venv/bin/python" "${common%/.git}/.venv/bin/python"; do
+        if [ -x "$candidate" ]; then py="$candidate"; break; fi
+    done
+fi
+[ -n "$py" ] || py=python3
+
+export PYTHONPATH="$root/companion/mac:$root/common/python${PYTHONPATH:+:$PYTHONPATH}"
+exec "$py" -m psp_companion.cli "$@"

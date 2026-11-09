@@ -10,6 +10,7 @@ smoke test [`docs/HARDWARE_TEST.md`](docs/HARDWARE_TEST.md).
 | `feat/mac-controller` | PSP as a Mac control deck (nub → mouse, buttons → keys, action wheel) |
 | `feat/second-screen` | PSP as a 480×272 second display streamed over USB |
 | `feat/dual-screen-game` | original asymmetric game: Mac main screen + PSP console |
+| `feat/psp-ai-companion` | PSP pet driven by a Codex agent, with approvals on the X/O buttons: [`docs/PSP_AI_COMPANION.md`](docs/PSP_AI_COMPANION.md) |
 
 ## How the pieces fit
 
@@ -36,6 +37,7 @@ common/psp/                      PSP-side link logic + transports (pipe, posix t
 common/psp/usb/prx/              pspmaclink.prx kernel module (UNTESTED on hardware)
 common/psp/usbhostfs/            vendored psplinkusb usbhostfs (BSD-3)
 common/python/pspmac/            Mac side: Link, transports (mock, hostfs, usb, tcp)
+companion/                       PSP AI Companion: EBOOT (psp/), Mac daemon (mac/), Codex skills (skills/), tests
 examples/hello, examples/echo    minimal EBOOTs (echo = USB/emulator reference app)
 tools/                           env.sh, fake_psp.py, ppsspp.py, ppsspp_bridge.py, usb_probe.py
 docs/                            STATUS, DECISIONS, SETUP, HARDWARE_TEST, research/, img/

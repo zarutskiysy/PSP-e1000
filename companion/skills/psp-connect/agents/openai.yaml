@@ -1,0 +1,5 @@
+interface:
+  display_name: "PSP Connect"
+  short_description: "Show this Codex session on the physical PSP pet"
+policy:
+  allow_implicit_invocation: false
