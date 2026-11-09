@@ -104,11 +104,11 @@ static void on_approval_close(app_t *a, pc_rd_t *r, uint32_t now) {
     close_approval(a);
     switch (reason) {
     case PC_CLOSE_ALLOWED:
-        toast(a, TOAST_OK, text[0] ? text : "Allowed", now, 2500);
+        toast(a, TOAST_OK, text[0] ? text : "Allowed", now, 1200); /* short: it borrows the only status line */
         a->pending_anim = PC_ANIM_ALLOWED;
         break;
     case PC_CLOSE_DENIED:
-        toast(a, TOAST_INFO, text[0] ? text : "Denied", now, 2500);
+        toast(a, TOAST_INFO, text[0] ? text : "Denied", now, 1200);
         a->pending_anim = PC_ANIM_DENIED;
         break;
     case PC_CLOSE_HIDDEN:

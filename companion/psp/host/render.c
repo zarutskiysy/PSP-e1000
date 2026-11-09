@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
         pet_init(&pet, 12345u + (uint32_t)i);
         ui_init(&v);
         memset(&st, 0, sizeof st);
-        st.fps = 60; st.frame_ms = 9.4f; st.io_name = "usb-maclink"; st.quality = 1; st.rx_frames = 1234; st.tx_frames = 987;
+        st.fps = 60; st.frame_ms = 9.4f; st.io_name = "usb-maclink"; st.rx_frames = 1234; st.tx_frames = 987;
         if (s->state != PC_AG_OFFLINE) {
             app_on_link(&a, 1, now);
             a.agent = s->state;

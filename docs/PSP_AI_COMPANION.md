@@ -32,11 +32,11 @@ See [What has and has not been verified](#what-has-and-has-not-been-verified) be
 
 ## Features
 
-- Procedural character drawn on the PSP with anti-aliased vector shapes. Only short state messages cross the USB cable, never video.
-- Twelve expressions that ease into each other, blinking, breathing, looking around, particles and one-shot reactions. Time-based, so a slow frame costs smoothness and never speed.
+- A monochrome visor with two cut-out eyes, drawn on the PSP with anti-aliased vector shapes. Only short state messages cross the USB cable, never video.
+- Twelve states that ease into each other through the shape of the visor and eyes alone, with blinking, gaze and one-shot reactions. Time-based, so a slow frame costs smoothness and never speed.
 - The face runs on its own thread at vblank rate and cannot be stalled by USB.
-- Status line built from real event data, with long paths and messages truncated.
-- Approval overlay with the pet still visible.
+- One line of status text built from real event data, with long paths and messages truncated.
+- When Codex needs a decision the whole screen inverts, with the visor still visible.
 - Quick actions and session switching on the physical buttons.
 - A deterministic demo mode for filming.
 
@@ -165,8 +165,8 @@ Attaching is idempotent. Repeating `$psp-connect` reports "Already attached".
 
 | Button | Normal | Quick-action menu | Approval showing |
 |---|---|---|---|
-| D-pad up / down | select action, shows a chip | move selection | |
-| X | run the selected action, only while the chip is visible | run | **Allow** |
+| D-pad up / down | select action, shown in the status line | move selection | |
+| X | run the selected action, only while it is shown | run | **Allow** |
 | O | dismiss | close | **Deny** |
 | START | open the menu | close the menu | |
 | SELECT | diagnostics | diagnostics | diagnostics |
@@ -180,7 +180,7 @@ Quick actions, all of which run in the connected session's project through Codex
 4. Inspect recent errors
 5. Interrupt task (asks for a second X)
 
-A disabled action shows why and sends nothing. The toast reports what Codex actually did: "started" when the turn begins and "done" or "failed" when it ends. Delivery over USB is never reported as success.
+A disabled action shows why and sends nothing. The status line reports what Codex actually did: "started" when the turn begins and "done" or "failed" when it ends. Delivery over USB is never reported as success.
 
 ### Approval rules
 
@@ -200,7 +200,7 @@ psp-companion demo
 
 Runs a scripted story of about 40 seconds, plus your answer, through the real event pipeline, protocol and renderer: sleep, connect, wake, task, thinking, editing, tests, approval, your X or O, reaction, failure, fix, pass, celebration, idle. No answer within 45 s counts as deny.
 
-The demo cannot affect real work. It runs as its own session, its approvals resolve only inside the demo, and it has no path to Codex. The PSP shows a DEMO badge and "DEMO - not real" on the approval. It refuses to start while a real session is attached, and attaching one ends it.
+The demo cannot affect real work. It runs as its own session, its approvals resolve only inside the demo, and it has no path to Codex. The PSP shows "demo" in the corner and "demo - not real" on the approval. It refuses to start while a real session is attached, and attaching one ends it.
 
 `--speed 2` runs faster. Without hardware, run it against PPSSPP:
 
@@ -244,10 +244,10 @@ Two further runs need PPSSPP. The second also spends a few small turns of Codex 
 
 Not yet done. With the PSP connected, about ten minutes:
 
-1. Run the [quick start](#quick-start) build and copy the three files. Launch **PSP AI Companion**. The sleeping pet should animate and read "Waiting for Mac...".
+1. Run the [quick start](#quick-start) build and copy the three files. Launch **PSP AI Companion**. A thin line should slowly pulse above "Waiting for Mac...".
 2. Run `psp-companion demo`. Press X at the approval. The demo should reach "Demo completed."
-3. Press SELECT and record fps, frame ms and `q`. The target is at least 30 fps. `q0` means the glow was reduced to keep the frame rate.
-4. Pull the USB cable during the demo or a session. The pet should go to sleep within about 4 s and keep animating. Replug: `psp-companion status` should say linked, and the session should return.
+3. Press SELECT and record fps and frame ms. The target is at least 30 fps.
+4. Pull the USB cable during the demo or a session. The visor should close to a line within about 4 s and keep moving. Replug: `psp-companion status` should say linked, and the session should return.
 5. Close and reopen the PSP app while a session is attached: the state should return.
 6. In Codex Desktop, type `$psp-connect`. The output should say the PSP is linked and name this session. Give Codex a small task and watch the pet.
 7. Optional, for approvals in Desktop sessions: run `psp-companion hooks install`, trust the hooks in Settings > Hooks, start a new turn that needs approval and answer it on the PSP. `psp-companion status --json` should show `"hooks_active": true`.
@@ -268,7 +268,7 @@ Tested 2026-11-09 with Codex CLI 0.167.0-alpha.3.2 and PPSSPP 1.20.4.
 | Real quick actions and interrupt | verified in PPSSPP with emulated buttons |
 | `$psp-connect` reports the sandbox block; `CODEX_THREAD_ID` matches the session | verified with real Codex in `workspace-write` |
 | **Real PSP over USB** | **not tested: no PSP was connected.** The transport itself was proven on this PSP earlier (see `docs/MORNING_REPORT.md`), but this app was not |
-| **Frame rate on real hardware** | **not measured.** Emulator frame time is 10 ms by instruction count, which is only a rough guide |
+| **Frame rate on real hardware** | **not measured.** Emulator frame time is about 3 ms by instruction count, which is only a rough guide |
 | **`$psp-connect` attaching from inside an unsandboxed session, or from the Desktop UI** | **not demonstrated.** The Desktop runs the same Codex binary, but this is untested |
 | **Hooks with real Codex** | **not demonstrated: requires your trust step.** Tested by feeding the documented payloads to the real hook script |
 

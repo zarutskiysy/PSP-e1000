@@ -6,123 +6,90 @@
 
 #include "gfx.h"
 
-#define C_TEXT GFX_RGBA(240, 240, 244, 255)
-#define C_DIM GFX_RGBA(150, 154, 168, 255)
-#define C_FAINT GFX_RGBA(104, 108, 122, 255)
-#define C_PANEL GFX_RGBA(23, 25, 34, 244)
-#define C_CROSS GFX_RGB(112, 164, 255)
-#define C_CIRCLE GFX_RGB(255, 112, 120)
+#define INK GFX_RGB(236, 234, 228)
+#define NIGHT GFX_RGB(11, 11, 13)
+#define STATUS_Y 232
+
+static uint32_t alpha(uint32_t c, int a) { return (c & 0xFFFFFFu) | ((uint32_t)a << 24); }
 
 void ui_init(ui_view_t *v) {
     memset(v, 0, sizeof *v);
     v->pet_x = 240.0f;
-    v->pet_y = 112.0f;
+    v->pet_y = 108.0f;
     v->pet_s = 1.0f;
 }
 
 void ui_update(ui_view_t *v, const app_t *a, float dt) {
     float k = 1.0f - expf(-dt * 13.0f);
-    float tx = 240.0f, ty = 112.0f, ts = 1.0f;
-    float menu_t = a->menu_open ? 1.0f : 0.0f, ap_t = a->ap.phase != AP_NONE ? 1.0f : 0.0f;
+    float tx = 240.0f, ty = 108.0f, ts = 1.0f;
     if (a->ap.phase != AP_NONE) {
-        ty = 72.0f;
-        ts = .58f;
+        ty = 60.0f;
+        ts = .62f;
     } else if (a->menu_open) {
         tx = 128.0f;
-        ts = .86f;
+        ty = 104.0f;
+        ts = .5f;
     } else if (a->diag) {
-        tx = 356.0f;
-        ts = .8f;
+        tx = 360.0f;
+        ts = .45f;
     }
     v->pet_x += (tx - v->pet_x) * k;
     v->pet_y += (ty - v->pet_y) * k;
     v->pet_s += (ts - v->pet_s) * k;
-    v->menu_k += (menu_t - v->menu_k) * k;
-    v->ap_k += (ap_t - v->ap_k) * k;
+    v->menu_k += ((a->menu_open ? 1.0f : 0.0f) - v->menu_k) * k;
 }
 
-static void button_glyph(int x, int cy, int is_cross, int alpha) {
-    uint32_t col = ((is_cross ? C_CROSS : C_CIRCLE) & 0xFFFFFFu) | ((uint32_t)alpha << 24);
-    gfx_ellipse((float)x, (float)cy, 10.5f, 10.5f, GFX_RGBA(255, 255, 255, alpha / 7));
-    if (is_cross) {
-        gfx_capsule_add((float)x - 4.2f, (float)cy - 4.2f, (float)x + 4.2f, (float)cy + 4.2f, 1.3f);
-        gfx_capsule_add((float)x - 4.2f, (float)cy + 4.2f, (float)x + 4.2f, (float)cy - 4.2f, 1.3f);
-        gfx_path_fill(col);
-    } else {
-        gfx_ring((float)x, (float)cy, 5.2f, 2.4f, 0.0f, 6.2831853f, col);
-    }
+static void cross_glyph(float x, float y, uint32_t c) {
+    gfx_capsule_add(x - 6, y - 6, x + 6, y + 6, 1.8f);
+    gfx_capsule_add(x - 6, y + 6, x + 6, y - 6, 1.8f);
+    gfx_path_fill(c);
 }
 
-static const char *mode_name(uint8_t mode) {
-    switch (mode) {
-    case PC_MODE_OBSERVE: return "DESKTOP - WATCHING";
-    case PC_MODE_HOOKS: return "DESKTOP - HOOKS";
-    case PC_MODE_MANAGED: return "APP SERVER";
-    case PC_MODE_DEMO: return "DEMO";
-    default: return "";
-    }
-}
+static void circle_glyph(float x, float y, uint32_t c) { gfx_ring(x, y, 7.5f, 3.0f, 0.0f, 6.2831853f, c); }
 
-static void draw_top_bar(const app_t *a, const pet_t *pet, uint32_t now) {
-    char buf[48];
-    const char *m = mode_name(a->mode);
-    (void)now;
-    if (a->link_up && m[0]) {
-        int w = gfx_text_width(gfx_font_small, m) + 16;
-        gfx_rrect(10, 8, (float)w, 18, 9, a->mode == PC_MODE_DEMO ? GFX_RGBA(255, 196, 64, 240) : GFX_RGBA(255, 255, 255, 26));
-        gfx_text(gfx_font_small, 18, 10, m, a->mode == PC_MODE_DEMO ? GFX_RGB(32, 24, 8) : C_DIM);
-    }
-    if (a->link_up && a->label[0]) {
-        char fit[32];
-        if (a->sess_count > 1) snprintf(buf, sizeof buf, "%s  %d/%d", a->label, a->sess_index + 1, a->sess_count);
-        else snprintf(buf, sizeof buf, "%s", a->label);
-        gfx_fit_text(gfx_font_small, buf, 200, fit, sizeof fit);
-        gfx_text(gfx_font_small, 470 - gfx_text_width(gfx_font_small, fit), 10, fit, C_DIM);
-    }
-    (void)pet;
-}
-
-static void draw_status(const app_t *a, const pet_t *pet, uint32_t now) {
+/* The one line of text on the screen. A toast, the selected action or a reason replaces the status. */
+static void draw_status(const app_t *a, uint32_t fg, uint32_t now) {
     char fit[100];
-    int y = 219;
-    gfx_fit_text(gfx_font_body, app_status_text(a), 440, fit, sizeof fit);
-    gfx_text_center(gfx_font_body, 240, y, fit, C_TEXT);
-    if (app_chip_visible(a, now) && !a->menu_open) {
-        char chip[60];
-        int enabled = a->actions[a->selected].enabled, w;
-        snprintf(chip, sizeof chip, "%s", app_action_label(a->selected));
-        w = gfx_text_width(gfx_font_small, chip);
-        gfx_rrect((float)(240 - w / 2 - 12), 240, (float)(w + 42), 20, 10, GFX_RGBA(255, 255, 255, 26));
-        gfx_text(gfx_font_small, 240 - w / 2, 243, chip, enabled ? C_TEXT : C_FAINT);
-        if (enabled) button_glyph(240 + w / 2 + 16, 250, 1, 255);
-    } else if (a->link_up) {
-        gfx_text_center(gfx_font_small, 240, 247, a->conn == PC_CONN_ATTACHED ? "START  actions      SELECT  info" : "SELECT  info", C_FAINT);
+    if (app_toast_visible(a, now)) {
+        gfx_fit_text(gfx_font_body, a->toast, 440, fit, sizeof fit);
+        gfx_text_center(gfx_font_body, 240, STATUS_Y, fit, fg);
+    } else if (a->menu_open && !a->actions[a->selected].enabled) {
+        gfx_fit_text(gfx_font_body, a->actions[a->selected].reason, 440, fit, sizeof fit);
+        gfx_text_center(gfx_font_body, 240, STATUS_Y, fit, alpha(fg, 170));
+    } else if (app_chip_visible(a, now) && !a->menu_open) {
+        int enabled = a->actions[a->selected].enabled;
+        const char *label = app_action_label(a->selected);
+        int w = gfx_text_width(gfx_font_body, label);
+        gfx_text(gfx_font_body, 240 - w / 2 + 10, STATUS_Y, label, enabled ? fg : alpha(fg, 110));
+        if (enabled) cross_glyph((float)(240 - w / 2 - 12), (float)(STATUS_Y + 9), fg);
+    } else {
+        gfx_fit_text(gfx_font_body, app_status_text(a), 440, fit, sizeof fit);
+        gfx_text_center(gfx_font_body, 240, STATUS_Y, fit, alpha(fg, 225));
     }
-    (void)pet;
 }
 
-static void draw_menu(const ui_view_t *v, const app_t *a, const pet_t *pet) {
-    float x = 480.0f - v->menu_k * 228.0f;
-    float y = 36.0f;
-    int i;
-    char fit[60];
-    if (v->menu_k < .01f) return;
-    gfx_rrect(x, y, 218, 170, 12, C_PANEL);
-    gfx_text(gfx_font_small, (int)x + 14, (int)y + 9, "QUICK ACTIONS", C_FAINT);
-    for (i = 0; i < PC_ACT_COUNT; i++) {
-        float ry = y + 28.0f + (float)i * 22.0f;
-        int sel = i == a->selected, en = a->actions[i].enabled;
-        if (sel) gfx_rrect(x + 8, ry - 2, 202, 22, 7, en ? pet_accent(pet, 52) : GFX_RGBA(255, 255, 255, 18));
-        gfx_text(gfx_font_body, (int)x + 16, (int)ry, app_action_label(i), en ? C_TEXT : C_FAINT);
+static void draw_corners(const app_t *a, uint32_t fg) {
+    if (!a->link_up) return;
+    if (a->mode == PC_MODE_DEMO) gfx_text(gfx_font_small, 12, 8, a->ap.phase != AP_NONE ? "demo - not real" : "demo", alpha(fg, 150));
+    if (a->sess_count > 1) {
+        char buf[48], fit[40];
+        snprintf(buf, sizeof buf, "%s  %d/%d", a->label, a->sess_index + 1, a->sess_count);
+        gfx_fit_text(gfx_font_small, buf, 200, fit, sizeof fit);
+        gfx_text(gfx_font_small, 468 - gfx_text_width(gfx_font_small, fit), 8, fit, alpha(fg, 130));
     }
-    if (a->actions[a->selected].enabled) {
-        button_glyph((int)x + 24, (int)y + 152, 1, 255);
-        gfx_text(gfx_font_small, (int)x + 38, (int)y + 146, "run", C_DIM);
-        button_glyph((int)x + 84, (int)y + 152, 0, 255);
-        gfx_text(gfx_font_small, (int)x + 98, (int)y + 146, "close", C_DIM);
-    } else {
-        gfx_fit_text(gfx_font_small, a->actions[a->selected].reason, 196, fit, sizeof fit);
-        gfx_text(gfx_font_small, (int)x + 12, (int)y + 146, fit, GFX_RGB(255, 186, 110));
+}
+
+static void draw_menu(const ui_view_t *v, const app_t *a, uint32_t fg, uint32_t bg) {
+    int x = (int)(480.0f - v->menu_k * 224.0f), i;
+    if (v->menu_k < .01f) return;
+    for (i = 0; i < PC_ACT_COUNT; i++) {
+        int y = 40 + i * 26, sel = i == a->selected, en = a->actions[i].enabled;
+        uint32_t tc = en ? fg : alpha(fg, 95);
+        if (sel) {
+            gfx_rrect((float)(x - 10), (float)(y - 3), 212, 24, 3, en ? fg : alpha(fg, 46));
+            tc = en ? bg : alpha(fg, 170);
+        }
+        gfx_text(gfx_font_body, x, y, app_action_label(i), tc);
     }
 }
 
@@ -145,87 +112,69 @@ static void wrap2(const char *s, int max_w, char *l1, char *l2, int cap) {
     if (cut < n) gfx_fit_text(gfx_font_body, s + cut + (s[cut] == ' ' ? 1 : 0), max_w, l2, cap);
 }
 
-static void draw_approval(const ui_view_t *v, const app_t *a, const pet_t *pet, uint32_t now) {
+static void draw_approval(const app_t *a, uint32_t fg, uint32_t now) {
     const app_approval_t *ap = &a->ap;
-    float y = 272.0f - v->ap_k * 146.0f;
-    int iy = (int)y;
     char l1[100], l2[100], t[40];
-    if (v->ap_k < .01f || ap->phase == AP_NONE) return;
-    gfx_rrect(24, y, 432, 136, 14, C_PANEL);
-    gfx_rrect(24, y, 432, 3, 1.5f, pet_accent(pet, 255));
+    gfx_text_center(gfx_font_title, 240, 122, ap->title[0] ? ap->title : "Approve?", fg);
+    wrap2(ap->detail, 420, l1, l2, sizeof l1);
+    gfx_text_center(gfx_font_body, 240, 150, l1, alpha(fg, 190));
+    if (l2[0]) gfx_text_center(gfx_font_body, 240, 168, l2, alpha(fg, 190));
     if (ap->pending > 1) {
-        snprintf(t, sizeof t, "+%d more", ap->pending - 1);
-        gfx_text(gfx_font_small, 440 - gfx_text_width(gfx_font_small, t), iy + 9, t, C_DIM);
+        snprintf(t, sizeof t, "+%d", ap->pending - 1);
+        gfx_text(gfx_font_small, 468 - gfx_text_width(gfx_font_small, t), 8, t, alpha(fg, 150));
+    } else if (a->mode != PC_MODE_DEMO && a->label[0]) {
+        gfx_text(gfx_font_small, 12, 8, a->label, alpha(fg, 130));
     }
-    if (ap->flags & PC_AF_DEMO) gfx_text(gfx_font_small, 36, iy + 9, "DEMO - not real", GFX_RGB(255, 196, 64));
-    gfx_text_center(gfx_font_title, 240, iy + 9, ap->title[0] ? ap->title : "Approve?", C_TEXT);
-    wrap2(ap->detail, 396, l1, l2, sizeof l1);
-    gfx_text_center(gfx_font_body, 240, iy + 37, l1, GFX_RGB(255, 214, 150));
-    if (l2[0]) gfx_text_center(gfx_font_body, 240, iy + 55, l2, GFX_RGB(255, 214, 150));
-
-    if (ap->phase == AP_SHOWING) {
-        if (ap->flags & PC_AF_ACTIONABLE) {
-            int left = 0;
-            if (ap->timeout_s) {
-                int el = (int)((now - ap->shown_ms) / 1000u);
-                left = (int)ap->timeout_s - el;
-                if (left < 0) left = 0;
-                snprintf(t, sizeof t, "%d s", left);
-                gfx_text_center(gfx_font_small, 240, iy + 86, t, C_FAINT);
-            }
-            {
-                int alpha = ap->armed ? 255 : 110;
-                uint32_t tc = ap->armed ? C_TEXT : C_FAINT;
-                button_glyph(120, iy + 109, 1, alpha);
-                gfx_text(gfx_font_title, 138, iy + 99, "ALLOW", tc);
-                button_glyph(300, iy + 109, 0, alpha);
-                gfx_text(gfx_font_title, 318, iy + 99, "DENY", tc);
-            }
-        } else {
-            gfx_text_center(gfx_font_body, 240, iy + 80, "Approve this in Codex Desktop", C_DIM);
-            button_glyph(208, iy + 111, 0, 255);
-            gfx_text(gfx_font_small, 226, iy + 104, "dismiss", C_DIM);
-        }
-    } else {
-        gfx_text_center(gfx_font_body, 240, iy + 99, ap->decision == PC_DECISION_ALLOW ? "Sending ALLOW to Codex..." : "Sending DENY to Codex...", C_DIM);
+    if (ap->phase != AP_SHOWING) {
+        gfx_text_center(gfx_font_body, 240, 197, "Sending...", alpha(fg, 170));
+        return;
+    }
+    if (!(ap->flags & PC_AF_ACTIONABLE)) {
+        gfx_text_center(gfx_font_body, 240, 192, "Approve this in Codex Desktop", alpha(fg, 200));
+        circle_glyph(212.0f, 225.0f, alpha(fg, 200));
+        gfx_text(gfx_font_body, 228, 216, "dismiss", alpha(fg, 200));
+        return;
+    }
+    {
+        uint32_t c = ap->armed ? fg : alpha(fg, 95);
+        cross_glyph(172.0f, 205.0f, c);
+        gfx_text(gfx_font_title, 186, 195, "allow", c);
+        circle_glyph(290.0f, 205.0f, c);
+        gfx_text(gfx_font_title, 304, 195, "deny", c);
+    }
+    if (ap->timeout_s) {
+        float left = 1.0f - (float)(now - ap->shown_ms) / ((float)ap->timeout_s * 1000.0f);
+        if (left > 0.0f) gfx_rrect(0, 268, 480.0f * left, 3, 1, alpha(fg, 140));
     }
 }
 
-static void draw_toast(const app_t *a, uint32_t now) {
-    char fit[80];
-    int w;
-    uint32_t bg;
-    if (!app_toast_visible(a, now)) return;
-    gfx_fit_text(gfx_font_body, a->toast, 380, fit, sizeof fit);
-    w = gfx_text_width(gfx_font_body, fit);
-    bg = a->toast_kind == TOAST_OK ? GFX_RGBA(44, 148, 96, 244) : a->toast_kind == TOAST_ERR ? GFX_RGBA(176, 56, 64, 244) : GFX_RGBA(56, 62, 84, 244);
-    gfx_rrect((float)(240 - w / 2 - 14), 5, (float)(w + 28), 26, 13, bg);
-    gfx_text_center(gfx_font_body, 240, 9, fit, GFX_RGB(255, 255, 255));
-}
-
-static void draw_diag(const app_t *a, const ui_stats_t *st) {
+static void draw_diag(const app_t *a, const ui_stats_t *st, uint32_t fg) {
     char b[120];
-    int y = 34;
-    gfx_rrect(8, 30, 238, 118, 9, GFX_RGBA(12, 13, 18, 228));
-#define LINE(...) do { snprintf(b, sizeof b, __VA_ARGS__); gfx_text(gfx_font_small, 16, y, b, C_DIM); y += 14; } while (0)
-    LINE("%.0f fps   frame %.1f ms   q%d", (double)st->fps, (double)st->frame_ms, st->quality);
+    int y = 30;
+#define LINE(...) do { snprintf(b, sizeof b, __VA_ARGS__); gfx_text(gfx_font_small, 14, y, b, alpha(fg, 175)); y += 14; } while (0)
+    LINE("%.0f fps   frame %.1f ms", (double)st->fps, (double)st->frame_ms);
     LINE("io %s   link %s", st->io_name ? st->io_name : "-", a->link_up ? "up" : "down");
     LINE("rx %lu  tx %lu frames", (unsigned long)st->rx_frames, (unsigned long)st->tx_frames);
     LINE("crc err %lu  junk %lu", (unsigned long)st->crc_errors, (unsigned long)st->junk);
     LINE("msgs %lu  bad %lu  drop %lu", (unsigned long)a->rx_msgs, (unsigned long)a->rx_bad, (unsigned long)a->tx_drop);
     LINE("mode %d  conn %d  caps %d  agent %d", a->mode, a->conn, a->caps, a->agent);
+    LINE("session %.24s", a->label);
     LINE("peer boot %08lX", (unsigned long)a->peer_boot_id);
-    LINE("%.40s", a->note);
 #undef LINE
 }
 
 void ui_draw(const ui_view_t *v, const app_t *a, pet_t *pet, const ui_stats_t *st, uint32_t now) {
-    gfx_clear_vgrad(GFX_RGB(15, 16, 24), GFX_RGB(8, 9, 13));
-    pet_draw(pet, v->pet_x, v->pet_y, v->pet_s);
-    draw_top_bar(a, pet, now);
-    if (a->ap.phase == AP_NONE && v->ap_k < .5f) draw_status(a, pet, now);
-    draw_menu(v, a, pet);
-    draw_approval(v, a, pet, now);
-    draw_toast(a, now);
-    if (a->diag) draw_diag(a, st);
+    /* Needing a person is the one thing that changes the whole screen, and it is a hard cut. */
+    int asking = a->ap.phase != AP_NONE;
+    uint32_t bg = asking ? INK : NIGHT, fg = asking ? NIGHT : INK;
+    gfx_clear_vgrad(bg, bg);
+    pet_draw(pet, v->pet_x, v->pet_y, v->pet_s, fg, bg);
+    draw_corners(a, fg);
+    if (asking) {
+        draw_approval(a, fg, now);
+    } else {
+        draw_menu(v, a, fg, bg);
+        draw_status(a, fg, now);
+        if (a->diag) draw_diag(a, st, fg);
+    }
 }

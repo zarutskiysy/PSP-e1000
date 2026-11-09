@@ -250,7 +250,7 @@ static void drain_rx(uint32_t now) {
 int main(void) {
     uint32_t *vram = (uint32_t *)sceGeEdramGetAddr();
     uint32_t *bufs[2];
-    int back = 1, slow_frames = 0, fast_frames = 0;
+    int back = 1;
     uint32_t last_tick = 0;
     uint64_t prev;
     float fps = 60.0f, frame_ms = 0.0f;
@@ -319,7 +319,6 @@ int main(void) {
         st.crc_errors = g_link.parser.crc_errors;
         st.junk = g_link.parser.junk_bytes;
         st.io_name = g_io_name;
-        st.quality = g_pet.quality;
 
         gfx_begin(bufs[back]);
         ui_draw(&g_view, &g_app, &g_pet, &st, now);
@@ -328,24 +327,6 @@ int main(void) {
         {
             float ms = (float)(sceKernelGetSystemTimeWide() - t0) / 1000.0f;
             frame_ms += (ms - frame_ms) * .08f;
-            /* Protect the frame rate on real hardware: shed the outer glow if we keep running late. */
-            if (ms > 15.0f) {
-                if (++slow_frames > 30) {
-                    g_pet.quality = 0;
-                    slow_frames = 0;
-                }
-            } else if (slow_frames > 0) {
-                slow_frames--;
-            }
-            /* ...and restore it once there is clearly room again. */
-            if (frame_ms < 8.0f) {
-                if (++fast_frames > 300) {
-                    g_pet.quality = 1;
-                    fast_frames = 0;
-                }
-            } else {
-                fast_frames = 0;
-            }
             if (dt > .0005f) fps += (1.0f / dt - fps) * .05f;
         }
 

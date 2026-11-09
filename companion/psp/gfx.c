@@ -217,7 +217,7 @@ void gfx_stroke(const vec2_t *p, int n, float width, uint32_t color) {
 }
 
 void gfx_rrect(float x, float y, float w, float h, float r, uint32_t color) {
-    enum { C = 6 };
+    enum { C = 12 }; /* points per corner: the visor is one big rounded rectangle */
     vec2_t p[4 * C];
     static const float sx[4] = {1, -1, -1, 1}, sy[4] = {1, 1, -1, -1};
     int q, i, n = 0;
